@@ -9,7 +9,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const DATA_DIR = process.env.PONT_DATA_DIR ?? path.join(__dirname, "../../.data");
+export const DATA_DIR =
+  process.env.PONT_DATA_DIR ??
+  (process.env.RAILWAY_VOLUME_MOUNT_PATH
+    ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "pont")
+    : path.join(__dirname, "../.data"));
 const VAULT_PATH = path.join(DATA_DIR, "vault.json");
 const DEVICE_KEY_PATH = path.join(DATA_DIR, "device.key");
 

@@ -24,6 +24,23 @@ En la pantalla inicial puedes:
 - **Provar amb dades d'exemple** — UI sin credenciales
 - **Entrar amb el meu usuari** — login real contra Web Família
 
+## Deploy a Railway
+
+Railway **no publica solo** porque el repo esté en GitHub: hay que crear (o reconectar) un servicio.
+
+1. Entra en [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → `rogerciscar/webfamilia`
+2. Usa **un solo servicio** (API + web juntos). Railway leerá `railway.toml`.
+3. En el servicio → **Settings** → **Networking** → **Generate Domain**
+4. (Recomendado) **Volumes** → monta un volumen en `/data` y añade variable:
+   - `PONT_DATA_DIR=/data`
+   Así el login recordado sobrevive a redeploys.
+5. Redeploy si hace falta. Healthcheck: `/api/health`
+
+Build: `npm ci && npm run build`  
+Start: `npm start` (sirve API + frontend estático)
+
+Si ya tenías un proyecto Railway apuntando al repo vacío, abre ese proyecto → **Settings** → confirma que el repo/branch es `main`, y fuerza un **Redeploy**.
+
 ## Cómo funciona
 
 ```

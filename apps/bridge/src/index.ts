@@ -1,7 +1,12 @@
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
+import path from "node:path";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import {
   forgetCredentials,
   getCaptureHtml,
@@ -14,18 +19,25 @@ import {
   useMock,
 } from "./session";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const webDistAbs = path.resolve(__dirname, "../../web/dist");
+const webDistRel = path.relative(process.cwd(), webDistAbs) || ".";
+const hasWebDist = existsSync(path.join(webDistAbs, "index.html"));
+
 const app = new Hono();
 const port = Number(process.env.PORT ?? 8787);
 
 app.use(
   "*",
   cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: (origin) => origin || "*",
     credentials: true,
   }),
 );
 
-app.get("/api/health", (c) => c.json({ ok: true, service: "pont-bridge" }));
+app.get("/api/health", (c) =>
+  c.json({ ok: true, service: "pont-bridge", web: hasWebDist }),
+);
 
 app.get("/api/session", async (c) => {
   const auto = await tryAutoLogin();
@@ -104,10 +116,23 @@ app.get("/api/debug/captures/:key", (c) => {
   return c.html(html);
 });
 
-app.get("*", async (c, next) => {
-  if (c.req.path.startsWith("/api/")) return next();
-  return c.text("Pont bridge API. Obri el frontend a http://localhost:5173");
-});
+if (hasWebDist) {
+  app.use("/*", serveStatic({ root: webDistRel }));
+  app.get("*", async (c) => {
+    if (c.req.path.startsWith("/api/")) return c.text("Not found", 404);
+    const html = await readFile(path.join(webDistAbs, "index.html"), "utf8");
+    return c.html(html);
+  });
+} else {
+  app.get("*", async (c, next) => {
+    if (c.req.path.startsWith("/api/")) return next();
+    return c.text(
+      "Pont bridge API. En local obri http://localhost:5173. En producció cal `npm run build`.",
+    );
+  });
+}
 
-console.log(`Pont bridge listening on http://localhost:${port}`);
-serve({ fetch: app.fetch, port });
+console.log(
+  `Pont bridge listening on :${port} (web: ${hasWebDist ? webDistAbs : "missing"})`,
+);
+serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
