@@ -6,4 +6,5 @@ dist
 .env
 .env.local
 apps/bridge/.data
+apps/web/.vite
 *.tsbuildinfo
