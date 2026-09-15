@@ -1,0 +1,24 @@
+{
+  "name": "pont-familia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Puente personal hacia Web Família (GVA): API bridge + webapp accesible",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n bridge,web -c cyan,magenta \"npm run dev -w @pont/bridge\" \"npm run dev -w @pont/web\"",
+    "build": "npm run build -w @pont/bridge && npm run build -w @pont/web",
+    "start": "npm run start -w @pont/bridge",
+    "typecheck": "npm run typecheck -w @pont/bridge && npm run typecheck -w @pont/web"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
