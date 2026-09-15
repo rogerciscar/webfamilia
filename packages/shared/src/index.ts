@@ -74,6 +74,7 @@ export type SessionStatus = {
   mode: "mock" | "live";
   username?: string;
   hasStoredCredentials: boolean;
+  vaultMode?: "device" | "master";
   lastLoginAt?: string;
   error?: string;
 };
@@ -82,10 +83,11 @@ export type LoginRequest = {
   username: string;
   password: string;
   remember?: boolean;
+  protectWithMaster?: boolean;
   masterPassword?: string;
   idioma?: "V" | "C";
 };
 
 export type UnlockRequest = {
-  masterPassword: string;
+  masterPassword?: string;
 };

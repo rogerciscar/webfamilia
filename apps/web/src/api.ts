@@ -74,8 +74,10 @@ export type SessionStatus = {
   mode: "mock" | "live";
   username?: string;
   hasStoredCredentials: boolean;
+  vaultMode?: "device" | "master";
   lastLoginAt?: string;
   error?: string;
+  dashboard?: Dashboard;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -108,6 +110,7 @@ export function login(body: {
   username: string;
   password: string;
   remember?: boolean;
+  protectWithMaster?: boolean;
   masterPassword?: string;
   idioma?: "V" | "C";
 }) {
@@ -117,10 +120,17 @@ export function login(body: {
   });
 }
 
-export function unlock(masterPassword: string) {
+export function unlock(masterPassword?: string) {
   return request<{ dashboard: Dashboard; session: SessionStatus }>("/api/session/unlock", {
     method: "POST",
     body: JSON.stringify({ masterPassword }),
+  });
+}
+
+export function forget() {
+  return request<{ session: SessionStatus }>("/api/session/forget", {
+    method: "POST",
+    body: "{}",
   });
 }
 

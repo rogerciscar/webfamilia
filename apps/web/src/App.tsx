@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   fetchDashboard,
   fetchSession,
+  forget,
   login,
   startMock,
   unlock,
@@ -25,19 +26,38 @@ export default function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [tab, setTab] = useState<Tab>("avisos");
   const [busy, setBusy] = useState(false);
+  const [booting, setBooting] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLive, setShowLive] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
+  const [protectWithMaster, setProtectWithMaster] = useState(false);
   const [masterPassword, setMasterPassword] = useState("");
   const [unlockPassword, setUnlockPassword] = useState("");
   const [studentId, setStudentId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchSession()
-      .then(setSession)
-      .catch((err: Error) => setError(err.message));
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await fetchSession();
+        if (cancelled) return;
+        setSession(status);
+        if (status.authenticated && status.dashboard) {
+          setDashboard(status.dashboard);
+        } else if (status.hasStoredCredentials && status.vaultMode === "device") {
+          setError(status.error ?? null);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Error de sessió");
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -67,7 +87,8 @@ export default function App() {
         username,
         password,
         remember,
-        masterPassword: remember ? masterPassword : undefined,
+        protectWithMaster: remember && protectWithMaster,
+        masterPassword: remember && protectWithMaster ? masterPassword : undefined,
         idioma: "V",
       });
       setSession(res.session);
@@ -79,16 +100,38 @@ export default function App() {
     }
   }
 
-  async function onUnlock(e: FormEvent) {
-    e.preventDefault();
+  async function doUnlock(master?: string) {
     setBusy(true);
     setError(null);
     try {
-      const res = await unlock(unlockPassword);
+      const res = await unlock(master);
       setSession(res.session);
       setDashboard(res.dashboard);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut desbloquejar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onUnlock(e: FormEvent) {
+    e.preventDefault();
+    await doUnlock(unlockPassword || undefined);
+  }
+
+  async function onForget() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await forget();
+      setSession(res.session);
+      setDashboard(null);
+      setPassword("");
+      setMasterPassword("");
+      setUnlockPassword("");
+      setShowLive(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No s'han pogut oblidar");
     } finally {
       setBusy(false);
     }
@@ -107,11 +150,33 @@ export default function App() {
     }
   }
 
-  if (!dashboard) {
+  if (booting) {
     return (
       <main className="gate">
         <div className="gate-inner">
-          <h1 className="brand">Pont<em>.</em></h1>
+          <h1 className="brand">
+            Pont<em>.</em>
+          </h1>
+          <p className="lede">Obrint sessió desada…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!dashboard) {
+    const needsMaster = Boolean(
+      session?.hasStoredCredentials && session.vaultMode === "master",
+    );
+    const hasDeviceVault = Boolean(
+      session?.hasStoredCredentials && session.vaultMode === "device",
+    );
+
+    return (
+      <main className="gate">
+        <div className="gate-inner">
+          <h1 className="brand">
+            Pont<em>.</em>
+          </h1>
           <p className="lede">
             Una capa clara sobre Web Família: el mateix compte oficial, menys fricció,
             millor lectura al mòbil i a l'escriptori.
@@ -120,13 +185,22 @@ export default function App() {
             <button type="button" className="secondary" disabled={busy} onClick={onMock}>
               Provar amb dades d'exemple
             </button>
-            <button type="button" className="ghost" disabled={busy} onClick={() => setShowLive((v) => !v)}>
-              Entrar amb el meu usuari
+            <button
+              type="button"
+              className="ghost"
+              disabled={busy}
+              onClick={() => setShowLive((v) => !v)}
+            >
+              {session?.hasStoredCredentials ? "Canviar d'usuari" : "Entrar amb el meu usuari"}
             </button>
           </div>
-          {session?.hasStoredCredentials && (
+
+          {needsMaster && (
             <form className="panel" onSubmit={onUnlock}>
-              <p className="hint">Tens credencials desades cifrades ({session.username}).</p>
+              <p className="hint">
+                Credencials desades per <strong>{session?.username}</strong>. Introdueix la
+                contrasenya mestra per entrar sense tornar a posar el NIF.
+              </p>
               <label>
                 Contrasenya mestra
                 <input
@@ -138,9 +212,34 @@ export default function App() {
                   minLength={8}
                 />
               </label>
-              <button type="submit" disabled={busy}>Desbloquejar i sincronitzar</button>
+              <div className="gate-actions">
+                <button type="submit" disabled={busy}>
+                  Entrar
+                </button>
+                <button type="button" className="ghost" disabled={busy} onClick={onForget}>
+                  Oblidar aquest dispositiu
+                </button>
+              </div>
             </form>
           )}
+
+          {hasDeviceVault && !needsMaster && (
+            <div className="panel">
+              <p className="hint">
+                Hi ha un compte desat ({session?.username}). Si l'auto-entrada ha fallat,
+                pots reintentar o esborrar-lo.
+              </p>
+              <div className="gate-actions">
+                <button type="button" disabled={busy} onClick={() => doUnlock()}>
+                  Tornar a entrar
+                </button>
+                <button type="button" className="ghost" disabled={busy} onClick={onForget}>
+                  Oblidar aquest dispositiu
+                </button>
+              </div>
+            </div>
+          )}
+
           {showLive && (
             <form className="panel" onSubmit={onLogin}>
               <div className="row two">
@@ -170,9 +269,19 @@ export default function App() {
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
                 />
-                Desar cifrado al disc local (cal contrasenya mestra)
+                Recordar en aquest dispositiu (no cal tornar a escriure NIF/contrasenya)
               </label>
               {remember && (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={protectWithMaster}
+                    onChange={(e) => setProtectWithMaster(e.target.checked)}
+                  />
+                  Protegir amb contrasenya mestra (opcional)
+                </label>
+              )}
+              {remember && protectWithMaster && (
                 <label>
                   Contrasenya mestra (mín. 8)
                   <input
@@ -180,19 +289,25 @@ export default function App() {
                     value={masterPassword}
                     onChange={(e) => setMasterPassword(e.target.value)}
                     autoComplete="new-password"
-                    required={remember}
+                    required
                     minLength={8}
                   />
                 </label>
               )}
               <p className="hint">
-                Les credencials no surten del teu ordinador: AES-256-GCM + scrypt.
-                Ús personal. No afiliat a la GVA.
+                Per defecte les credencials es desen xifrades amb una clau local del
+                dispositiu. Només viuen al teu ordinador. Ús personal. No afiliat a la GVA.
               </p>
-              <button type="submit" disabled={busy}>Connectar amb Web Família</button>
+              <button type="submit" disabled={busy}>
+                Connectar amb Web Família
+              </button>
             </form>
           )}
-          {error && <p className="error" role="alert">{error}</p>}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
         </div>
       </main>
     );
@@ -216,9 +331,16 @@ export default function App() {
             {new Date(dashboard.capturedAt).toLocaleString("ca-ES")}
           </p>
         </div>
-        <button type="button" className="ghost" disabled={busy} onClick={refresh}>
-          Actualitzar
-        </button>
+        <div className="gate-actions">
+          <button type="button" className="ghost" disabled={busy} onClick={refresh}>
+            Actualitzar
+          </button>
+          {session?.hasStoredCredentials && (
+            <button type="button" className="ghost" disabled={busy} onClick={onForget}>
+              Oblidar login
+            </button>
+          )}
+        </div>
       </header>
       {dashboard.students.length > 1 && (
         <div className="students" role="tablist" aria-label="Alumnes">
@@ -246,7 +368,11 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       {tab === "avisos" && (
         <Section title="Avisos" count={dashboard.notices.length}>
           {dashboard.notices.length === 0 && <Empty />}

@@ -10,7 +10,13 @@ import {
 import { mockDashboard } from "./mock";
 import { extractNavLinks, WebFamiliaClient } from "./webfamilia";
 import type { Dashboard, SessionStatus } from "@pont/shared";
-import { loadCredentials, peekVaultMeta, saveCredentials, vaultExists } from "./vault";
+import {
+  clearCredentials,
+  loadCredentials,
+  peekVaultMeta,
+  saveCredentials,
+  vaultExists,
+} from "./vault";
 
 const CANDIDATE_PATHS = [
   "main_wf",
@@ -31,6 +37,7 @@ type RuntimeState = {
   lastError?: string;
   lastDashboard?: Dashboard;
   captures: Record<string, string>;
+  autoLoginPromise?: Promise<Dashboard | null>;
 };
 
 const state: RuntimeState = {
@@ -42,10 +49,11 @@ const state: RuntimeState = {
 export async function getStatus(): Promise<SessionStatus> {
   const meta = await peekVaultMeta();
   return {
-    authenticated: state.mode === "mock" || Boolean(state.client?.isAuthenticated()),
+    authenticated: state.mode === "live" && Boolean(state.client?.isAuthenticated()),
     mode: state.mode,
     username: state.client?.username ?? meta?.username,
     hasStoredCredentials: await vaultExists(),
+    vaultMode: meta?.mode,
     lastLoginAt: state.lastLoginAt ?? meta?.updatedAt,
     error: state.lastError,
   };
@@ -63,6 +71,7 @@ export async function loginLive(input: {
   username: string;
   password: string;
   remember?: boolean;
+  protectWithMaster?: boolean;
   masterPassword?: string;
   idioma?: "V" | "C";
 }) {
@@ -74,13 +83,11 @@ export async function loginLive(input: {
     state.lastLoginAt = new Date().toISOString();
     state.lastError = undefined;
     state.captures.main = page.html;
-    if (input.remember) {
-      if (!input.masterPassword) {
-        throw new Error("Cal una contrasenya mestra per desar les credencials cifrades.");
-      }
+    if (input.remember !== false) {
+      const mode = input.protectWithMaster ? "master" : "device";
       await saveCredentials(
         { username: input.username, password: input.password },
-        input.masterPassword,
+        { mode, masterPassword: input.masterPassword },
       );
     }
     return buildDashboard(client);
@@ -92,13 +99,49 @@ export async function loginLive(input: {
   }
 }
 
-export async function unlockAndLogin(masterPassword: string) {
+export async function unlockAndLogin(masterPassword?: string) {
+  const meta = await peekVaultMeta();
+  if (!meta) throw new Error("No hi ha credencials desades.");
+  if (meta.mode === "master" && !masterPassword) {
+    throw new Error("Cal la contrasenya mestra per desbloquejar.");
+  }
   const creds = await loadCredentials(masterPassword);
   return loginLive({
     username: creds.username,
     password: creds.password,
     remember: false,
   });
+}
+
+/** Auto-login when vault is device-bound. Safe no-op otherwise. */
+export async function tryAutoLogin(): Promise<Dashboard | null> {
+  if (state.client?.isAuthenticated()) {
+    return state.lastDashboard ?? (await getDashboard());
+  }
+  if (state.autoLoginPromise) return state.autoLoginPromise;
+  state.autoLoginPromise = (async () => {
+    try {
+      const meta = await peekVaultMeta();
+      if (!meta || meta.mode !== "device") return null;
+      return await unlockAndLogin();
+    } catch (error) {
+      state.lastError = error instanceof Error ? error.message : "Auto-login fallit";
+      return null;
+    } finally {
+      state.autoLoginPromise = undefined;
+    }
+  })();
+  return state.autoLoginPromise;
+}
+
+export async function forgetCredentials() {
+  await clearCredentials();
+  state.client = null;
+  state.mode = "mock";
+  state.lastDashboard = undefined;
+  state.lastLoginAt = undefined;
+  state.lastError = undefined;
+  state.captures = {};
 }
 
 export async function getDashboard(): Promise<Dashboard> {
