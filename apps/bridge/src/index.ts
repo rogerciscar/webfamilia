@@ -21,6 +21,8 @@ import {
   useMock,
 } from "./session";
 import { getStorageInfo } from "./vault";
+import { pdfDiskPath } from "./attachments";
+import type { Attachment } from "@pont/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -166,6 +168,23 @@ app.post("/api/admin/scrape", async (c) => {
     const message = error instanceof Error ? error.message : "Error de scrape";
     return c.json({ ok: false, error: message }, 400);
   }
+});
+
+app.get("/api/attachments/:id", async (c) => {
+  const id = c.req.param("id");
+  const dash = await getDashboard().catch(() => null);
+  const att = dash?.attachments?.find((a: Attachment) => a.id === id);
+  if (!att) return c.text("Not found", 404);
+  const disk = pdfDiskPath(att);
+  if (!existsSync(disk)) return c.text("Fitxer no trobat al disc", 404);
+  const buf = await readFile(disk);
+  return new Response(buf, {
+    headers: {
+      "content-type": "application/pdf",
+      "content-disposition": `inline; filename="${att.filename.replace(/"/g, "")}"`,
+      "cache-control": "private, max-age=3600",
+    },
+  });
 });
 
 if (webRootAbs && webRootRel) {

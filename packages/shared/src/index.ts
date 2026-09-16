@@ -3,6 +3,27 @@ export type Student = {
   name: string;
   course?: string;
   center?: string;
+  nia?: string;
+  group?: string;
+  enrollmentYear?: string;
+  tutorName?: string;
+};
+
+export type AttachmentKind =
+  | "menu_menjador"
+  | "menu_especial"
+  | "aviso_doc"
+  | "other";
+
+export type Attachment = {
+  id: string;
+  filename: string;
+  sourceUrl: string;
+  sha256: string;
+  bytes: number;
+  kind: AttachmentKind;
+  noticeId?: string;
+  studentId?: string;
 };
 
 export type Notice = {
@@ -10,13 +31,20 @@ export type Notice = {
   title: string;
   body: string;
   date?: string;
+  dateIso?: string;
   author?: string;
   unread?: boolean;
+  studentId?: string;
+  studentName?: string;
+  hasDetail?: boolean;
+  detailHref?: string;
+  attachments?: Attachment[];
 };
 
 export type Absence = {
   id: string;
   date: string;
+  dateIso?: string;
   subject?: string;
   kind: "falta" | "retard" | "desconegut";
   justified?: boolean;
@@ -44,6 +72,7 @@ export type Activity = {
   id: string;
   title: string;
   date?: string;
+  dateIso?: string;
   place?: string;
   description?: string;
 };
@@ -71,6 +100,40 @@ export type ScheduleSlot = {
   subject: string;
 };
 
+export type MenuNutrition = {
+  kcal?: number;
+  hc?: number;
+  p?: number;
+  l?: number;
+};
+
+export type MenuDay = {
+  date: string;
+  dayOfMonth: number;
+  weekday: string;
+  courses: string[];
+  saladCode?: string;
+  dessert?: string;
+  nutrition?: MenuNutrition;
+};
+
+export type MenuVariant = {
+  name: string;
+  salads?: Record<string, string>;
+  notes?: string[];
+  days: MenuDay[];
+};
+
+export type MenuExtraction = {
+  sourceFile: string;
+  centerName?: string;
+  provider?: string;
+  year: number;
+  month: number;
+  variants: MenuVariant[];
+  attachmentId?: string;
+};
+
 export type CaptureInfo = {
   key: string;
   bytes: number;
@@ -89,6 +152,8 @@ export type Dashboard = {
   behaviors: Behavior[];
   subjects: Subject[];
   schedule: ScheduleSlot[];
+  attachments: Attachment[];
+  menus: MenuExtraction[];
   source: "mock" | "live";
   capturedAt: string;
   diagnostics?: {

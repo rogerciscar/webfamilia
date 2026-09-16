@@ -211,6 +211,40 @@ export class WebFamiliaClient {
     return page;
   }
 
+  async getBinary(
+    pathOrUrl: string,
+  ): Promise<{ url: string; status: number; buffer: Buffer; contentType: string }> {
+    let url = pathOrUrl.startsWith("http")
+      ? pathOrUrl
+      : `${WF_BASE}/myitaca/${pathOrUrl.replace(/^\//, "")}`;
+    for (let hop = 0; hop < 8; hop++) {
+      const res = await fetch(url, {
+        redirect: "manual",
+        headers: {
+          cookie: jarToHeader(this.jar, url),
+          "user-agent": BROWSER_UA,
+          accept: "application/pdf,application/octet-stream,*/*",
+          "accept-language": "ca-ES,ca;q=0.9,es;q=0.8",
+          referer: this.referer || WF_LOGIN,
+        },
+      });
+      await storeSetCookies(this.jar, url, res.headers);
+      const location = res.headers.get("location");
+      if (location && res.status >= 300 && res.status < 400) {
+        url = new URL(location, url).toString();
+        continue;
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      return {
+        url: res.url || url,
+        status: res.status,
+        buffer,
+        contentType: res.headers.get("content-type") || "",
+      };
+    }
+    throw new Error("No s'ha pogut descarregar el fitxer.");
+  }
+
   isAuthenticated() {
     return Boolean(this.lastHtml) && !isLoginFailure({
       url: this.lastUrl,

@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "start": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:parsers": "tsx scripts/test-parsers.ts"
+    "test:parsers": "tsx scripts/test-parsers.ts",
+    "test:extractors": "tsx scripts/test-extractors.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.0",

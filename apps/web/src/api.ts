@@ -3,6 +3,21 @@ export type Student = {
   name: string;
   course?: string;
   center?: string;
+  nia?: string;
+  group?: string;
+  enrollmentYear?: string;
+  tutorName?: string;
+};
+
+export type Attachment = {
+  id: string;
+  filename: string;
+  sourceUrl: string;
+  sha256: string;
+  bytes: number;
+  kind: string;
+  noticeId?: string;
+  studentId?: string;
 };
 
 export type Notice = {
@@ -10,13 +25,19 @@ export type Notice = {
   title: string;
   body: string;
   date?: string;
+  dateIso?: string;
   author?: string;
   unread?: boolean;
+  studentId?: string;
+  studentName?: string;
+  hasDetail?: boolean;
+  attachments?: Attachment[];
 };
 
 export type Absence = {
   id: string;
   date: string;
+  dateIso?: string;
   subject?: string;
   kind: "falta" | "retard" | "desconegut";
   justified?: boolean;
@@ -44,6 +65,7 @@ export type Activity = {
   id: string;
   title: string;
   date?: string;
+  dateIso?: string;
   place?: string;
   description?: string;
 };
@@ -71,6 +93,26 @@ export type ScheduleSlot = {
   subject: string;
 };
 
+export type MenuDay = {
+  date: string;
+  dayOfMonth: number;
+  weekday: string;
+  courses: string[];
+  saladCode?: string;
+  dessert?: string;
+  nutrition?: { kcal?: number; hc?: number; p?: number; l?: number };
+};
+
+export type MenuExtraction = {
+  sourceFile: string;
+  centerName?: string;
+  provider?: string;
+  year: number;
+  month: number;
+  variants: { name: string; days: MenuDay[] }[];
+  attachmentId?: string;
+};
+
 export type Dashboard = {
   student: Student | null;
   students: Student[];
@@ -82,6 +124,8 @@ export type Dashboard = {
   behaviors: Behavior[];
   subjects: Subject[];
   schedule: ScheduleSlot[];
+  attachments?: Attachment[];
+  menus?: MenuExtraction[];
   source: "mock" | "live";
   capturedAt: string;
   diagnostics?: {

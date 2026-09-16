@@ -145,5 +145,7 @@ export function mockDashboard(): Dashboard {
         subject: "Educació Física",
       },
     ],
+    attachments: [],
+    menus: [],
   };
 }

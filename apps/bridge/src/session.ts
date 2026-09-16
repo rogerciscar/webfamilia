@@ -2,6 +2,7 @@ import {
   parseAbsences,
   parseActivities,
   parseBehaviors,
+  parseDocumentLinks,
   parseGrades,
   parseMatriculaLinks,
   parseMessages,
@@ -10,11 +11,12 @@ import {
   parseSectionTargets,
   parseStudents,
   parseSubjects,
+  enrichStudent,
   pageScore,
 } from "./parsers";
 import { mockDashboard } from "./mock";
 import { extractNavLinks, WebFamiliaClient } from "./webfamilia";
-import type { Dashboard, SessionStatus } from "@pont/shared";
+import type { Attachment, Dashboard, MenuExtraction, Notice, SessionStatus } from "@pont/shared";
 import {
   clearCredentials,
   getStorageInfo,
@@ -24,6 +26,8 @@ import {
   vaultExists,
 } from "./vault";
 import { analyzePages, type StructureReport } from "./structure";
+import { storePdf } from "./attachments";
+import { extractMenuFromPdf } from "./menu-pdf";
 import * as cheerio from "cheerio";
 
 const BOOT_PATHS = [
@@ -115,6 +119,8 @@ export async function loginLive(input: {
         behaviors: [],
         subjects: [],
         schedule: [],
+        attachments: [],
+        menus: [],
         diagnostics: {
           pages: [{ key: "main", bytes: page.html.length, title: page.title }],
           navLinks: extractNavLinks(page.html).slice(0, 40),
@@ -256,14 +262,23 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     client.lastHtml ||
     "";
 
-  const students = parseStudents(homeHtml);
+  let students = parseStudents(homeHtml);
   const matriculas = parseMatriculaLinks(homeHtml);
   const nav = extractNavLinks(homeHtml);
+  const attachments: Attachment[] = [];
+  const menus: MenuExtraction[] = [];
+  const seenPdf = new Set<string>();
+  let notices: Notice[] = [];
 
   for (const student of students.slice(0, 3)) {
     try {
       const datos = await client.get(`alumno_datos_wf?alumno_id=${student.id}`);
-      if (!/login_wf/i.test(datos.url)) store(`alumno_datos_${student.id}`, datos.html);
+      if (!/login_wf/i.test(datos.url)) {
+        store(`alumno_datos_${student.id}`, datos.html);
+        students = students.map((s) =>
+          s.id === student.id ? enrichStudent(datos.html, s) : s,
+        );
+      }
     } catch (err) {
       scrapeErrors.push(
         `alumno_datos_${student.id}: ${err instanceof Error ? err.message : "error"}`,
@@ -287,6 +302,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       );
 
   for (const mat of matriculaTargets.slice(0, 4)) {
+    const student = students.find((s) => s.id === mat.alumnoId);
     try {
       const matHref =
         mat.matriculaId
@@ -298,6 +314,11 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
         continue;
       }
       store(captureKey(matHref), page.html);
+      if (student) {
+        students = students.map((s) =>
+          s.id === student.id ? enrichStudent(page.html, s) : s,
+        );
+      }
       const sections = parseSectionTargets(page.html);
       const extras = [
         ...sections.map((s) => s.href),
@@ -316,10 +337,16 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
           if (/login_wf/i.test(sub.url)) continue;
           const $ = cheerio.load(sub.html);
           const fragment = $(".imc-contenido").first().html();
-          store(
-            captureKey(href),
-            fragment ? `<div class="imc-contenido">${fragment}</div>${sub.html}` : sub.html,
-          );
+          const html =
+            fragment ? `<div class="imc-contenido">${fragment}</div>${sub.html}` : sub.html;
+          store(captureKey(href), html);
+          if (/tipo=ag|agenda|avisos/i.test(href)) {
+            const agendaNotices = parseNotices(html, {
+              studentId: mat.alumnoId,
+              studentName: student?.name,
+            });
+            notices = mergeUnique(notices, agendaNotices, (n) => `${n.studentId || ""}:${n.id}:${n.title}`);
+          }
         } catch (err) {
           scrapeErrors.push(`${href}: ${err instanceof Error ? err.message : "error"}`);
         }
@@ -329,13 +356,82 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     }
   }
 
+  // Also parse agenda from any composed home HTML
+  notices = mergeUnique(
+    notices,
+    parseNotices(homeHtml, {
+      studentId: students[0]?.id,
+      studentName: students[0]?.name,
+    }),
+    (n) => `${n.studentId || ""}:${n.id}:${n.title}`,
+  );
+
+  // Open aviso details and pull PDFs (Agenda → PDF)
+  for (const notice of notices.slice(0, 12)) {
+    if (!notice.detailHref && !notice.hasDetail) continue;
+    const detailHref =
+      notice.detailHref ||
+      `alumno_avisos_wf?tipo=ag&agenda_id=${notice.id}${notice.studentId ? `&alumno_id=${notice.studentId}` : ""}`;
+    try {
+      const detail = await client.get(detailHref);
+      if (/login_wf/i.test(detail.url)) continue;
+      store(captureKey(detailHref), detail.html);
+      const docLinks = parseDocumentLinks(detail.html, detail.url);
+      for (const doc of docLinks.slice(0, 4)) {
+        try {
+          const file = await client.getBinary(doc.href);
+          const isPdf =
+            /pdf/i.test(file.contentType) ||
+            /\.pdf(\?|$)/i.test(file.url) ||
+            file.buffer.slice(0, 4).toString() === "%PDF";
+          if (!isPdf || file.buffer.length < 100) continue;
+          const filename =
+            doc.text.replace(/[^\w.\- ]+/g, "_").slice(0, 80) ||
+            file.url.split("/").pop()?.split("?")[0] ||
+            `${notice.title}.pdf`;
+          const att = await storePdf({
+            buffer: file.buffer,
+            filename: filename.endsWith(".pdf") ? filename : `${filename}.pdf`,
+            sourceUrl: file.url,
+            title: notice.title,
+            noticeId: notice.id,
+            studentId: notice.studentId,
+          });
+          if (seenPdf.has(att.sha256)) continue;
+          seenPdf.add(att.sha256);
+          attachments.push(att);
+          notice.attachments = [...(notice.attachments || []), att];
+          if (att.kind === "menu_menjador" || att.kind === "menu_especial" || /men[uú]/i.test(att.filename + notice.title)) {
+            try {
+              const menu = await extractMenuFromPdf(file.buffer, {
+                sourceFile: att.filename,
+                centerName: students.find((s) => s.id === notice.studentId)?.center,
+              });
+              if (menu) {
+                menu.attachmentId = att.id;
+                menus.push(menu);
+              }
+            } catch (err) {
+              scrapeErrors.push(
+                `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
+              );
+            }
+          }
+        } catch (err) {
+          scrapeErrors.push(
+            `pdf ${doc.href}: ${err instanceof Error ? err.message : "error"}`,
+          );
+        }
+      }
+    } catch (err) {
+      scrapeErrors.push(
+        `detail ${detailHref}: ${err instanceof Error ? err.message : "error"}`,
+      );
+    }
+  }
+
   state.structure = analyzePages(pages);
 
-  const notices = mergeUnique(
-    pickBest(pages, parseNotices, /agenda|avis|aviso/i),
-    parseNotices(homeHtml),
-    (n) => n.id + n.title,
-  );
   const absences = mergeUnique(
     pickBest(pages, parseAbsences, /assist|asist|falta/i),
     parseAbsences(homeHtml),
@@ -376,7 +472,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       links: extractNavLinks(html).length,
     })),
     navLinks: nav.slice(0, 40),
-    scrapeErrors: scrapeErrors.slice(0, 20),
+    scrapeErrors: scrapeErrors.slice(0, 30),
     note:
       notices.length +
         absences.length +
@@ -403,6 +499,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     behaviors,
     subjects,
     schedule,
+    attachments,
+    menus,
     diagnostics,
   };
   state.lastDashboard = dashboard;

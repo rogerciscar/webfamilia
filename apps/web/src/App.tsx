@@ -411,7 +411,10 @@ export default function App() {
             <h1>WebFamilia</h1>
             <p>
               {student ? student.name : "Sense alumne"}
-              {student?.course ? ` · ${student.course}` : ""}
+              {student?.group || student?.course
+                ? ` · ${student.group || student.course}`
+                : ""}
+              {student?.tutorName ? ` · Tutor/a: ${student.tutorName}` : ""}
             </p>
             <p className={`status-dot ${dashboard.source}`}>
               <i aria-hidden="true" />
@@ -489,19 +492,75 @@ export default function App() {
                   <tr>
                     <th scope="col">Data</th>
                     <th scope="col">Títol</th>
-                    <th scope="col">Estat</th>
+                    <th scope="col">Alumne</th>
+                    <th scope="col">PDF</th>
                   </tr>
                 </thead>
                 <tbody>
                   {dashboard.notices.map((n) => (
-                    <tr key={n.id}>
-                      <td className="time">{n.date || "—"}</td>
-                      <td className="cell-main">{n.title}</td>
-                      <td>{n.unread ? <span className="pill warn">Nou</span> : "—"}</td>
+                    <tr key={`${n.studentId || ""}-${n.id}`}>
+                      <td className="time">{n.dateIso || n.date || "—"}</td>
+                      <td className="cell-main">
+                        {n.title}
+                        {n.unread ? <span className="pill warn"> Nou</span> : null}
+                      </td>
+                      <td className="cell-soft">{n.studentName || "—"}</td>
+                      <td>
+                        {(n.attachments?.length ?? 0) > 0 ? (
+                          n.attachments!.map((a) => (
+                            <a key={a.id} href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer">
+                              {a.filename}
+                            </a>
+                          ))
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {(dashboard.menus?.length ?? 0) > 0 && (
+            <div className="table-stack" style={{ marginTop: "1.25rem" }}>
+              {dashboard.menus!.map((menu) => (
+                <div className="day-block" key={menu.sourceFile + menu.attachmentId}>
+                  <h3>
+                    Menú {menu.month}/{menu.year}
+                    {menu.centerName ? ` · ${menu.centerName}` : ""}
+                  </h3>
+                  <p className="hint">{menu.sourceFile}</p>
+                  {(menu.variants[0]?.days ?? []).slice(0, 10).length > 0 && (
+                    <div className="table-scroll">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Data</th>
+                            <th scope="col">Dia</th>
+                            <th scope="col">Plats</th>
+                            <th scope="col">A</th>
+                            <th scope="col">Postre</th>
+                            <th scope="col">Kcal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {menu.variants[0].days.slice(0, 14).map((d) => (
+                            <tr key={d.date}>
+                              <td className="time">{d.date}</td>
+                              <td className="cell-soft">{d.weekday}</td>
+                              <td className="cell-main">{d.courses.join(" · ") || "—"}</td>
+                              <td>{d.saladCode || "—"}</td>
+                              <td className="cell-soft">{d.dessert || "—"}</td>
+                              <td className="time">{d.nutrition?.kcal ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </Section>

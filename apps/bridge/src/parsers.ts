@@ -10,6 +10,7 @@ import type {
   Student,
   Subject,
 } from "@pont/shared";
+import { extractDateLabel, toIsoDate } from "./dates";
 
 function clean(text: string) {
   return text.replace(/\s+/g, " ").trim();
@@ -24,20 +25,49 @@ export function parseStudents(html: string): Student[] {
     const name = clean(link.text());
     const id = link.attr("data-id") || link.attr("id") || "";
     if (!name || name.length < 3) return;
-    const course = clean($(el).find(".imc-alumno-matriculas a").first().text()) || undefined;
-    students.push({ id: id || name, name, course });
+    const group = clean($(el).find(".imc-alumno-matriculas a").first().text()) || undefined;
+    students.push({ id: id || name, name, course: group, group });
   });
   if (students.length) return uniqueStudents(students);
-  $(
-    "select[name*='alum'] option, select[id*='alum'] option, a.imc-alumno-nombre",
-  ).each((i, el) => {
+  $("a.imc-alumno-nombre").each((i, el) => {
     const name = clean($(el).text());
-    const id = $(el).attr("value") || $(el).attr("data-id") || $(el).attr("id") || String(i);
-    if (!name || /seleccion|triar|elegir|selecciona|escoll/i.test(name)) return;
-    if (name.length < 3 || name.length > 90) return;
+    const id = $(el).attr("data-id") || $(el).attr("id") || String(i);
+    if (!name || name.length < 3 || name.length > 90) return;
     students.push({ id, name });
   });
   return uniqueStudents(students);
+}
+
+/** Enrich student from alumno_datos / escritorio HTML. Never reads Identitat digital secrets. */
+export function enrichStudent(html: string, base: Student): Student {
+  const $ = cheerio.load(html);
+  // Strip identity-digital blocks before reading
+  $(".imc-identidad-digital").remove();
+  const nia =
+    clean($(".imc-alumno-dp-nia strong").first().text()) ||
+    (html.match(/NIA[^0-9]*(\d{6,})/i)?.[1] ?? undefined);
+  const tutorName =
+    clean($(".imc-matricula-tutor strong").first().text()) ||
+    clean($(".imc-matricula-tutor p").first().text().replace(/^Tutor[ao]s?\s*/i, "")) ||
+    undefined;
+  const group =
+    clean($("a.imc-al-matricula.imc-seleccionada, .imc-alumno-matriculas a").first().text()) ||
+    base.group ||
+    base.course;
+  const enrollmentYear =
+    clean($(".imc-es-alumno-matriculas h2").first().text()).match(/(\d{4}\s*[-–]\s*\d{4})/)?.[1]?.replace(/\s+/g, "") ||
+    undefined;
+  const center =
+    clean($(".imc-titulo, .imc-centro-datos .imc-titulo, h4 a").first().text()) || base.center;
+  return {
+    ...base,
+    nia: nia || base.nia,
+    tutorName: tutorName && tutorName.length > 2 ? tutorName : base.tutorName,
+    group: group || base.group,
+    course: group || base.course,
+    enrollmentYear: enrollmentYear || base.enrollmentYear,
+    center: center || base.center,
+  };
 }
 
 /** Matrícula links from listar_alumnos page. */
@@ -85,25 +115,60 @@ export function parseSectionTargets(html: string) {
   return uniqueBy(targets, (t) => t.href);
 }
 
-export function parseNotices(html: string): Notice[] {
+export function parseNotices(
+  html: string,
+  ctx?: { studentId?: string; studentName?: string },
+): Notice[] {
   const $ = cheerio.load(html);
   const notices: Notice[] = [];
   $(".imc-avisos-modulo").each((_, mod) => {
-    const title = clean($(mod).find("h2").first().text()).toLowerCase();
-    if (title && !/agenda|avis/i.test(title)) return;
+    const heading = clean($(mod).find("h2").first().text()).toLowerCase();
+    if (heading && !/agenda|avis/i.test(heading)) return;
     $(mod)
       .find("ul.imc-listado-detalle li, ul.imc-listado-agenda li")
       .each((i, li) => {
-        const notice = parseAvisoLi($, li, i);
+        const notice = parseAvisoLi($, li, i, ctx);
         if (notice) notices.push(notice);
       });
   });
   if (notices.length) return notices;
-  $("ul.imc-listado-agenda li, ul.imc-listado-detalle li").each((i, li) => {
-    const notice = parseAvisoLi($, li, i);
+  $("ul.imc-listado-agenda li, a.bt-av-tarea").each((i, el) => {
+    const li = $(el).is("li") ? el : $(el).closest("li").get(0) || el;
+    const notice = parseAvisoLi($, li, i, ctx);
     if (notice) notices.push(notice);
   });
   return notices;
+}
+
+/** PDF / document links inside aviso detail HTML. */
+export function parseDocumentLinks(html: string, baseUrl = "https://familia.edu.gva.es") {
+  const $ = cheerio.load(html);
+  const links: { href: string; text: string }[] = [];
+  $("a[href], iframe[src], embed[src], object[data], source[src]").each((_, el) => {
+    const href =
+      $(el).attr("href") ||
+      $(el).attr("src") ||
+      $(el).attr("data") ||
+      "";
+    if (!href) return;
+    if (!/\.pdf(\?|$)/i.test(href) && !/application\/pdf|descarg|download|visor|documento/i.test(href + ($(el).text() || ""))) {
+      if (!/\.pdf(\?|$)/i.test(href)) return;
+    }
+    let absolute = href;
+    try {
+      absolute = new URL(href, baseUrl).toString();
+    } catch {
+      return;
+    }
+    links.push({
+      href: absolute,
+      text: clean($(el).text() || $(el).attr("title") || href.split("/").pop() || "document.pdf"),
+    });
+  });
+  // Also raw URLs in scripts/onclick
+  const raw = html.match(/https?:\/\/[^"'>\s]+\.pdf(?:\?[^"'>\s]*)?/gi) || [];
+  for (const href of raw) links.push({ href, text: href.split("/").pop() || "doc.pdf" });
+  return uniqueBy(links, (l) => l.href);
 }
 
 export function parseAbsences(html: string): Absence[] {
@@ -127,6 +192,7 @@ export function parseAbsences(html: string): Absence[] {
         absences.push({
           id: a.attr("data-id") || `a-${i}`,
           date: date || "—",
+          dateIso: toIsoDate(date),
           subject: subject || undefined,
           kind: /retard|retraso/.test(blob) ? "retard" : "falta",
           justified: /justific/i.test(blob),
@@ -158,6 +224,7 @@ export function parseActivities(html: string): Activity[] {
           id: a.attr("data-id") || `act-${i}`,
           title: actTitle,
           date,
+          dateIso: toIsoDate(date),
           description: clean($(li).text()),
         });
       });
@@ -295,22 +362,35 @@ function parseAvisoLi(
   $: ReturnType<typeof cheerio.load>,
   li: unknown,
   i: number,
+  ctx?: { studentId?: string; studentName?: string },
 ): Notice | null {
   const el = $(li as never);
-  const a = el.find("a").first();
-  const date =
+  const a = el.find("a").first().length ? el.find("a").first() : el;
+  const rawText = clean(el.text());
+  const dateLabel =
     clean(el.attr("data-date") || "") ||
     clean(a.find("span").first().text()) ||
+    extractDateLabel(rawText) ||
     undefined;
-  const title = clean(a.find("strong").first().text()) || clean(a.text());
+  const title =
+    clean(a.find("strong").first().text()) ||
+    clean(rawText.replace(dateLabel || "", "")).replace(/^\s*[-–]\s*/, "") ||
+    clean(a.text());
   if (!title || title.length < 3) return null;
   if (/entrar|login|contrasenya|contraseña|vore-les totes/i.test(title)) return null;
+  const href = normalizeHref(a.attr("href") || a.attr("data-href") || "");
+  const id = a.attr("data-id") || href.match(/agenda_id=(\d+)/i)?.[1] || `n-${i}`;
   return {
-    id: a.attr("data-id") || `n-${i}`,
-    date,
+    id: String(id),
+    date: dateLabel,
+    dateIso: toIsoDate(dateLabel),
     title,
-    body: clean(el.text()),
+    body: title,
     unread: el.hasClass("imc-li-de-nuevo") || a.hasClass("imc-li-de-nuevo"),
+    studentId: ctx?.studentId,
+    studentName: ctx?.studentName,
+    hasDetail: Boolean(href && /alumno_avisos_wf|agenda_id/i.test(href)),
+    detailHref: href && /alumno_avisos_wf|agenda_id/i.test(href) ? href : undefined,
   };
 }
 
