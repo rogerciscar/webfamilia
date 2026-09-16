@@ -53,7 +53,7 @@ Con `WF_USER`/`WF_PASS` el servidor scrapea solo; **ver** los datos sigue exigie
 [Web] ──login──► [Bridge] ──WF cookies──► familia.edu.gva.es
                      │
                      ├── scrape cada alumno_*_wf
-                     ├── PDFs agenda → menús (pdftotext)
+                     ├── PDFs agenda (Playwright/SharePoint) → menús (pdfjs)
                      └── Dashboard JSON etiquetado por studentId
 ```
 

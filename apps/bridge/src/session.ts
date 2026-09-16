@@ -26,6 +26,7 @@ import {
 import { analyzePages, type StructureReport } from "./structure";
 import { storePdf } from "./attachments";
 import { extractMenuFromPdf } from "./menu-pdf";
+import { PlaywrightPdfSession } from "./playwright-pdf";
 import { mockAllowed, passwordsMatch } from "./browser-session";
 import { listCustomSlots } from "./custom-schedule";
 import { createHash } from "node:crypto";
@@ -39,6 +40,8 @@ const BOOT_PATHS = [
 type RuntimeState = {
   mode: "mock" | "live";
   client: WebFamiliaClient | null;
+  /** In-memory WF password for Playwright SharePoint downloads (never sent to client). */
+  wfPassword?: string;
   lastLoginAt?: string;
   lastError?: string;
   lastDashboard?: Dashboard;
@@ -98,6 +101,7 @@ function maskLabel(username?: string) {
 export function useMock() {
   state.mode = "mock";
   state.client = null;
+  state.wfPassword = undefined;
   state.lastError = undefined;
   state.lastDashboard = mockDashboard();
   return state.lastDashboard;
@@ -115,6 +119,7 @@ export async function loginLive(input: {
   try {
     const page = await client.login(input.username, input.password, input.idioma ?? "V");
     state.client = client;
+    state.wfPassword = input.password;
     state.mode = "live";
     state.lastLoginAt = new Date().toISOString();
     state.lastError = undefined;
@@ -166,6 +171,7 @@ export async function loginLive(input: {
     }
   } catch (error) {
     state.client = null;
+    state.wfPassword = undefined;
     state.mode = "mock";
     state.lastError = error instanceof Error ? error.message : "Error de login";
     throw error;
@@ -260,6 +266,7 @@ export function startBackgroundScrape() {
 export async function forgetCredentials() {
   await clearCredentials();
   state.client = null;
+  state.wfPassword = undefined;
   state.mode = "mock";
   state.lastDashboard = undefined;
   state.lastLoginAt = undefined;
@@ -521,7 +528,27 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   }
 
   // Open aviso details and pull PDFs (Agenda → PDF → Menús) — per student
+  // SharePoint needs Playwright (browser cookies); cheerio/fetch alone fails.
   const pdfCache = new Map<string, { att: Attachment; buffer: Buffer }>();
+  let pw: PlaywrightPdfSession | null = null;
+  const ensurePw = async () => {
+    if (pw) return pw;
+    const password = await resolveWfPassword(client);
+    if (!password || !client.username) return null;
+    try {
+      pw = new PlaywrightPdfSession();
+      await pw.start(client.username, password);
+      return pw;
+    } catch (err) {
+      scrapeErrors.push(
+        `playwright login: ${err instanceof Error ? err.message : "error"}`,
+      );
+      await pw?.close().catch(() => undefined);
+      pw = null;
+      return null;
+    }
+  };
+  try {
   for (const notice of notices.slice(0, 50)) {
     const mid = notice.studentId ? matriculaByStudent.get(notice.studentId) : undefined;
     const hrefCandidates = [
@@ -552,75 +579,166 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       scrapeErrors.push(`sense PDF: ${notice.title.slice(0, 40)} (${notice.studentId || "?"})`);
     }
     notice.attachments = notice.attachments || [];
+    const tryStorePdf = async (
+      buffer: Buffer,
+      url: string,
+      filenameHint: string | undefined,
+      docText: string,
+    ) => {
+      const filename = (
+        docText.match(/[\w.\- ]+\.pdf/i)?.[0] ||
+        filenameHint ||
+        `${notice.title}.pdf`
+      )
+        .replace(/[^\w.\- ]+/g, "_")
+        .slice(0, 80);
+      const safeName = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+      const hash = shaOf(buffer);
+      const cached = pdfCache.get(hash);
+      let att: Attachment;
+      if (cached) {
+        att = { ...cached.att, studentId: notice.studentId, noticeId: notice.id };
+      } else {
+        att = await storePdf({
+          buffer,
+          filename: safeName,
+          sourceUrl: url,
+          title: notice.title,
+          noticeId: notice.id,
+          studentId: notice.studentId,
+        });
+        pdfCache.set(att.sha256, { att, buffer });
+        if (!seenPdf.has(att.sha256)) {
+          seenPdf.add(att.sha256);
+          attachments.push(att);
+        }
+      }
+      if (!notice.attachments!.some((a) => a.sha256 === att.sha256)) {
+        notice.attachments!.push(att);
+      }
+      const looksMenu =
+        att.kind === "menu_menjador" ||
+        att.kind === "menu_especial" ||
+        /men[uú]|menjador|comedor|dieta/i.test(`${att.filename} ${notice.title} ${docText}`);
+      if (looksMenu) {
+        const already = menus.some(
+          (m) => m.attachmentId === att.id && m.studentId === notice.studentId,
+        );
+        if (!already) {
+          try {
+            const buf = cached?.buffer ?? buffer;
+            const menu = await extractMenuFromPdf(buf, {
+              sourceFile: att.filename,
+              centerName: students.find((s) => s.id === notice.studentId)?.center,
+            });
+            if (menu) {
+              menu.attachmentId = att.id;
+              menu.studentId = notice.studentId;
+              menu.studentName = notice.studentName;
+              menus.push(menu);
+            } else scrapeErrors.push(`menu buit: ${att.filename}`);
+          } catch (err) {
+            scrapeErrors.push(
+              `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
+            );
+          }
+        }
+      }
+    };
+
     for (const doc of docLinks.slice(0, 10)) {
       try {
-        const resolved = await downloadPdfSmart(client, doc.href, detailUrl);
+        let resolved = await downloadPdfSmart(client, doc.href, detailUrl);
+        if (!resolved) {
+          const session = await ensurePw();
+          if (session) {
+            resolved = await session.downloadFromDetail({
+              detailUrl:
+                detailUrl.startsWith("http")
+                  ? detailUrl
+                  : `https://familia.edu.gva.es/wf-front/myitaca/${detailUrl.replace(/^\//, "")}`,
+              linkHref: doc.href,
+              linkText: doc.text,
+              noticeTitle: notice.title,
+            });
+          }
+        }
         if (!resolved) continue;
-        const { buffer, url, filenameHint } = resolved;
-        const filename = (
-          doc.text.match(/[\w.\- ]+\.pdf/i)?.[0] ||
-          filenameHint ||
-          `${notice.title}.pdf`
-        )
-          .replace(/[^\w.\- ]+/g, "_")
-          .slice(0, 80);
-        const safeName = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
-        const hash = shaOf(buffer);
-        const cached = pdfCache.get(hash);
-        let att: Attachment;
-        if (cached) {
-          att = { ...cached.att, studentId: notice.studentId, noticeId: notice.id };
-        } else {
-          att = await storePdf({
-            buffer,
-            filename: safeName,
-            sourceUrl: url,
-            title: notice.title,
-            noticeId: notice.id,
-            studentId: notice.studentId,
-          });
-          pdfCache.set(att.sha256, { att, buffer });
-          if (!seenPdf.has(att.sha256)) {
-            seenPdf.add(att.sha256);
-            attachments.push(att);
-          }
-        }
-        if (!notice.attachments.some((a) => a.sha256 === att.sha256)) {
-          notice.attachments.push(att);
-        }
-        const looksMenu =
-          att.kind === "menu_menjador" ||
-          att.kind === "menu_especial" ||
-          /men[uú]|menjador|comedor|dieta/i.test(`${att.filename} ${notice.title} ${doc.text}`);
-        if (looksMenu) {
-          const already = menus.some(
-            (m) => m.attachmentId === att.id && m.studentId === notice.studentId,
-          );
-          if (!already) {
-            try {
-              const buf = cached?.buffer ?? buffer;
-              const menu = await extractMenuFromPdf(buf, {
-                sourceFile: att.filename,
-                centerName: students.find((s) => s.id === notice.studentId)?.center,
-              });
-              if (menu) {
-                menu.attachmentId = att.id;
-                menu.studentId = notice.studentId;
-                menu.studentName = notice.studentName;
-                menus.push(menu);
-              } else scrapeErrors.push(`menu buit: ${att.filename}`);
-            } catch (err) {
-              scrapeErrors.push(
-                `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
-              );
-            }
-          }
-        }
+        await tryStorePdf(resolved.buffer, resolved.url, resolved.filenameHint, doc.text);
       } catch (err) {
         scrapeErrors.push(`pdf ${doc.href}: ${err instanceof Error ? err.message : "error"}`);
       }
     }
+
+    // No doc links or download failed: Playwright click on notice title (SharePoint path)
+    if (!notice.attachments.length && /men[uú]|menjador|pdf|document|adjunt/i.test(notice.title)) {
+      try {
+        const session = await ensurePw();
+        if (session && detailUrl) {
+          const absolute =
+            detailUrl.startsWith("http")
+              ? detailUrl
+              : `https://familia.edu.gva.es/wf-front/myitaca/${detailUrl.replace(/^\//, "")}`;
+          const captured = await session.downloadFromDetail({
+            detailUrl: absolute,
+            noticeTitle: notice.title,
+          });
+          if (captured) {
+            await tryStorePdf(
+              captured.buffer,
+              captured.url,
+              captured.filenameHint,
+              notice.title,
+            );
+          }
+        }
+      } catch (err) {
+        scrapeErrors.push(
+          `playwright ${notice.title.slice(0, 30)}: ${err instanceof Error ? err.message : "error"}`,
+        );
+      }
+    }
     if (notice.attachments.length) notice.body = notice.title;
+  }
+
+  // Dedicated Menú menjador pass if still empty
+  if (!menus.length) {
+    try {
+      const session = await ensurePw();
+      if (session) {
+        const captured = await session.downloadByNoticeTitle(/Men[uú]\s+menjador/i);
+        if (captured) {
+          const att = await storePdf({
+            buffer: captured.buffer,
+            filename: captured.filenameHint || "menu-menjador.pdf",
+            sourceUrl: captured.url,
+            title: "Menú menjador",
+            studentId: students[0]?.id,
+          });
+          if (!seenPdf.has(att.sha256)) {
+            seenPdf.add(att.sha256);
+            attachments.push(att);
+          }
+          const menu = await extractMenuFromPdf(captured.buffer, {
+            sourceFile: att.filename,
+            centerName: students[0]?.center,
+          });
+          if (menu) {
+            menu.attachmentId = att.id;
+            menu.studentId = students[0]?.id;
+            menu.studentName = students[0]?.name;
+            menus.push(menu);
+          }
+        }
+      }
+    } catch (err) {
+      scrapeErrors.push(
+        `playwright menú: ${err instanceof Error ? err.message : "error"}`,
+      );
+    }
+  }
+  } finally {
+    if (pw) await pw.close().catch(() => undefined);
   }
 
   state.structure = analyzePages(pages);
@@ -751,6 +869,23 @@ function summarizeMarkers(html: string) {
 
 function shaOf(buf: Buffer) {
   return createHash("sha256").update(buf).digest("hex");
+}
+
+async function resolveWfPassword(client: WebFamiliaClient): Promise<string | null> {
+  if (state.wfPassword) return state.wfPassword;
+  const envPass = process.env.WF_PASS || process.env.PONT_WF_PASS || "";
+  const envUser = (process.env.WF_USER || process.env.PONT_WF_USER || "").trim().toUpperCase();
+  if (envPass && (!envUser || envUser === client.username)) return envPass;
+  try {
+    const creds = await loadCredentials();
+    if (creds.username === client.username) {
+      state.wfPassword = creds.password;
+      return creds.password;
+    }
+  } catch {
+    // vault locked or missing
+  }
+  return null;
 }
 
 /** Download a PDF; if the URL returns an HTML viewer, dig for nested PDF links. */
