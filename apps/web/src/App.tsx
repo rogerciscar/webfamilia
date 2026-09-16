@@ -15,7 +15,7 @@ import {
   saveRememberedLogin,
 } from "./remember";
 
-type Tab = "avisos" | "faltes" | "notes" | "missatges" | "activitats" | "conducta";
+type Tab = "avisos" | "faltes" | "notes" | "missatges" | "activitats" | "horaris";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "avisos", label: "Avisos" },
@@ -23,7 +23,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "notes", label: "Notes" },
   { id: "missatges", label: "Missatges" },
   { id: "activitats", label: "Activitats" },
-  { id: "conducta", label: "Conducta" },
+  { id: "horaris", label: "Horaris" },
 ];
 
 export default function App() {
@@ -484,8 +484,12 @@ export default function App() {
         </Section>
       )}
       {tab === "notes" && (
-        <Section title="Notes" count={dashboard.grades.length}>
-          {dashboard.grades.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+        <Section
+          title="Notes i assignatures"
+          count={dashboard.grades.length + (dashboard.subjects?.length ?? 0)}
+        >
+          {dashboard.grades.length === 0 &&
+            !(dashboard.subjects?.length) && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
             {dashboard.grades.map((g, i) => (
               <article className="item" key={g.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -495,6 +499,15 @@ export default function App() {
                   <span className="pill ok">{g.value}</span>
                 </div>
                 {g.comment && <p>{g.comment}</p>}
+              </article>
+            ))}
+            {(dashboard.subjects ?? []).map((s, i) => (
+              <article className="item" key={s.id} style={{ animationDelay: `${i * 40}ms` }}>
+                <strong>{s.subject}</strong>
+                <div className="meta">
+                  {s.teacher && <span>{s.teacher}</span>}
+                  {s.attention && <span>{s.attention}</span>}
+                </div>
               </article>
             ))}
           </div>
@@ -535,17 +548,21 @@ export default function App() {
           </div>
         </Section>
       )}
-      {tab === "conducta" && (
-        <Section title="Conducta" count={dashboard.behaviors.length}>
-          {dashboard.behaviors.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+      {tab === "horaris" && (
+        <Section title="Horaris" count={dashboard.schedule?.length ?? 0}>
+          {!(dashboard.schedule?.length) && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
-            {dashboard.behaviors.map((b, i) => (
-              <article className="item" key={b.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{b.description}</strong>
+            {(dashboard.schedule ?? []).map((h, i) => (
+              <article className="item" key={h.id} style={{ animationDelay: `${i * 40}ms` }}>
+                <strong>{h.subject}</strong>
                 <div className="meta">
-                  {b.date && <span>{b.date}</span>}
-                  {b.subject && <span>{b.subject}</span>}
-                  {b.kind && <span className="pill">{b.kind}</span>}
+                  <span>{h.day}</span>
+                  {(h.start || h.end) && (
+                    <span>
+                      {h.start}
+                      {h.end ? `–${h.end}` : ""}
+                    </span>
+                  )}
                 </div>
               </article>
             ))}
@@ -593,9 +610,12 @@ function Empty({ diagnostics }: { diagnostics?: Dashboard["diagnostics"] }) {
             .join(" · ")}
         </p>
       ) : null}
+      {diagnostics?.scrapeErrors?.length ? (
+        <p className="hint">Errors de scrape: {diagnostics.scrapeErrors.slice(0, 3).join(" · ")}</p>
+      ) : null}
       <p className="hint">
-        Obri <a href="/api/debug/captures">/api/debug/captures</a> i digues quines
-        claus hi ha per afinar el parser.
+        Obri <a href="/api/debug/captures">/api/debug/captures</a> per veure les claus HTML
+        capturades.
       </p>
     </div>
   );

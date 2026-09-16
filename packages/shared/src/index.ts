@@ -56,6 +56,21 @@ export type Behavior = {
   kind?: string;
 };
 
+export type Subject = {
+  id: string;
+  subject: string;
+  teacher?: string;
+  attention?: string;
+};
+
+export type ScheduleSlot = {
+  id: string;
+  day: string;
+  start?: string;
+  end?: string;
+  subject: string;
+};
+
 export type CaptureInfo = {
   key: string;
   bytes: number;
@@ -72,11 +87,14 @@ export type Dashboard = {
   messages: Message[];
   activities: Activity[];
   behaviors: Behavior[];
+  subjects: Subject[];
+  schedule: ScheduleSlot[];
   source: "mock" | "live";
   capturedAt: string;
   diagnostics?: {
     pages: CaptureInfo[];
     navLinks: { href: string; text: string }[];
+    scrapeErrors?: string[];
     note?: string;
   };
 };

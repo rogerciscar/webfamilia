@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ca_VA">
+<head>
+  <meta charset="utf-8">
+  <title>Web família - Generalitat Valenciana</title>
+  <link rel="stylesheet" href="../resources/wf/css/alumnos_listado.css">
+</head>
+<body>
+  <input type="hidden" name="tokenSesion" id="tokenSesion" value="fake-token">
+  <input type="hidden" name="urlActual" id="urlActual" value="http://familia.edu.gva.es/wf-front/WEB-INF/jsp/myitaca/listar_alumnos_wf.jsp">
+  <div class="imc-contenedor" id="imc-contenedor">
+    <header id="imc-cabecera" class="imc-cabecera">
+      <h1>Web <em>família 2.0</em></h1>
+      <a href="logout_wf?tipo=out" class="bt bt-desconecta"><span>Desconnecta</span></a>
+      <ul>
+        <li><a href="mas_info_wf" class="bt bt-mas-info bt-ajax"><span>Més informació</span></a></li>
+        <li><a href="tutor_wf" class="bt bt-usuario bt-ajax"><span>PARENT EXAMPLE</span></a></li>
+        <li><a href="listar_alumnos_wf" class="bt bt-alumnos-listado bt-seleccionado"><span>Alumnat</span></a></li>
+      </ul>
+    </header>
+    <section class="imc-seccion" id="imc-seccion">
+      <div id="imc-alumnos" class="imc-alumnos">
+        <ul>
+          <li class="imc-alumno">
+            <div class="imc-alumno-datos">
+              <a href="alumno_datos_wf?alumno_id=1001" data-id="1001" id="1001" class="imc-alumno-nombre imc-seleccionado">ALUMNE UNO EXAMPLE</a>
+              <ul class="imc-alumno-matriculas">
+                <li>
+                  <a href="alumno_matricula_wf?alumno_id=1001&amp;matricula_id=2001" data-id="2001">1PRI - 1PRIA</a>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="imc-alumno">
+            <div class="imc-alumno-datos">
+              <a href="alumno_datos_wf?alumno_id=1002" data-id="1002" id="1002" class="imc-alumno-nombre">ALUMNE DOS EXAMPLE</a>
+              <ul class="imc-alumno-matriculas">
+                <li>
+                  <a href="alumno_matricula_wf?alumno_id=1002&amp;matricula_id=2002" data-id="2002">4INF - 4INFA</a>
+                </li>
+              </ul>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </section>
+    <section id="imc-escritorio-alumnos" class="imc-escritorio-seccion imc-escritorio-seccion-on">
+      <div class="imc-escritorio-alumno imc-escritorio-alumno-on imc-escritorio-alumno-1001">
+        <div class="imc-es-matricula imc-es-al-bloque-on">
+          <ul class="imc-es-matricula-secciones">
+            <li><a href="javascript:;" data-href="" class="">Avisos</a></li>
+            <li><a href="javascript:;" data-href="alumno_avisos_wf?tipo=cm" class="">Comunicacions</a></li>
+            <li><a href="javascript:;" data-href="alumno_calificaciones_wf" class="">Qualificacions</a></li>
+            <li><a href="javascript:;" data-href="alumno_materias_wf" class="">Assignatures</a></li>
+            <li><a href="javascript:;" data-href="alumno_horarios_wf" class="imc-seleccionado">Horaris</a></li>
+            <li><a href="javascript:;" data-href="alumno_tramites_wf" class="">Tràmits</a></li>
+          </ul>
+          <div class="imc-es-matricula-secciones imc-es-ma-es">
+            <div class="imc-es-matricula-seccion">
+              <div class="imc-es-ma-se-listado">
+                <div class="imc-avisos-modulo">
+                  <h2>Agenda</h2>
+                  <p class="imc-modulo-mas-info">3</p>
+                  <ul class="imc-listado-detalle imc-listado-agenda">
+                    <li data-date="09-09-2026">
+                      <a href="alumno_avisos_wf?tipo=ag&amp;agenda_id=11" data-id="11" class="bt-av-tarea">
+                        <span>09/09/2026</span> <strong>Menú menjador setembre</strong>
+                      </a>
+                    </li>
+                    <li data-date="08-09-2026">
+                      <a href="alumno_avisos_wf?tipo=ag&amp;agenda_id=12" data-id="12" class="bt-av-tarea">
+                        <span>08/09/2026</span> <strong>Infografia inici de curs</strong>
+                      </a>
+                    </li>
+                    <li data-date="02-09-2026">
+                      <a href="alumno_avisos_wf?tipo=ag&amp;agenda_id=13" data-id="13" class="bt-av-tarea imc-li-de-nuevo">
+                        <span>02/09/2026</span> <strong>INFORMACIÓ MENJADOR</strong>
+                      </a>
+                    </li>
+                  </ul>
+                </div>
+                <div class="imc-avisos-modulo">
+                  <h2>Assistències</h2>
+                  <p class="imc-sin-datos">No hi ha faltes</p>
+                </div>
+                <div class="imc-avisos-modulo">
+                  <h2>Activitats</h2>
+                  <ul class="imc-listado-detalle">
+                    <li data-date="21-03-2026">
+                      <a href="alumno_avisos_wf?tipo=ac&amp;actividad_id=21" data-id="21" class="bt-av-tarea">
+                        <span>21/03/2026</span> <strong>Sortida al museu</strong>
+                      </a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <div class="imc-es-matricula-seccion">
+              <div class="imc--co-info" data-tipus="totes">
+                <p><strong>No hi ha noves comunicacions.</strong></p>
+                <p>Si ho desitges, pots <a class="bt bt-com-todas" href="alumno_avisos_wf?tipo=cm&amp;cargado=true"> vore-les totes </a></p>
+              </div>
+            </div>
+            <div class="imc-es-matricula-seccion">
+              <p class="imc-sin-datos">No hi ha qualificacions disponibles.</p>
+            </div>
+            <div class="imc-es-matricula-seccion">
+              <table class="imc-materias-tabla">
+                <thead>
+                  <tr>
+                    <th class="imc-area">Àrea</th>
+                    <th class="imc-profesor">Professor/a</th>
+                    <th class="imc-atencion">Atenció</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><p>Matemàtiques</p></td>
+                    <td data-title="Professor/a"><p class="imc-profesor-nombre">TUTOR EXAMPLE</p></td>
+                    <td>Dijous, de 13:00 a 15:00 h.</td>
+                  </tr>
+                  <tr>
+                    <td><p>Valencià: Llengua i Literatura</p></td>
+                    <td data-title="Professor/a"><p class="imc-profesor-nombre">TUTOR EXAMPLE</p></td>
+                    <td>Dijous, de 13:00 a 15:00 h.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="imc-es-matricula-seccion imc-seleccionado">
+              <table class="imc-horarios">
+                <thead>
+                  <tr><th class="imc-dia" colspan="2">Dilluns</th></tr>
+                  <tr><th class="imc-hora">Hora</th><th class="imc-materia">Àrea</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th class="imc-hora"><strong>09:00</strong><span>- 09:40</span></th>
+                    <td><p>Llengua Castellana i Literatura</p></td>
+                  </tr>
+                  <tr>
+                    <th class="imc-hora"><strong>09:40</strong><span>- 10:20</span></th>
+                    <td><p>Matemàtiques</p></td>
+                  </tr>
+                </tbody>
+              </table>
+              <table class="imc-horarios">
+                <thead>
+                  <tr><th class="imc-dia" colspan="2">Dimarts</th></tr>
+                  <tr><th class="imc-hora">Hora</th><th class="imc-materia">Àrea</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th class="imc-hora"><strong>09:00</strong><span>- 09:40</span></th>
+                    <td><p>Educació Física</p></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

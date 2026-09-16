@@ -3,9 +3,13 @@ import {
   parseActivities,
   parseBehaviors,
   parseGrades,
+  parseMatriculaLinks,
   parseMessages,
   parseNotices,
+  parseSchedule,
+  parseSectionTargets,
   parseStudents,
+  parseSubjects,
   pageScore,
 } from "./parsers";
 import { mockDashboard } from "./mock";
@@ -21,25 +25,10 @@ import {
 } from "./vault";
 import * as cheerio from "cheerio";
 
-const CANDIDATE_PATHS = [
+const BOOT_PATHS = [
+  "listar_alumnos_wf",
   "main_wf",
-  "avisos_wf",
-  "faltas_wf",
-  "notas_wf",
-  "mensajes_wf",
-  "actividades_wf",
-  "horario_wf",
-  "comportamientos_wf",
-  "evaluaciones_wf",
-  "calificaciones_wf",
-  "asistencia_wf",
-  "retrasos_wf",
-  "comunicados_wf",
-  "tutorias_wf",
-  "agenda_wf",
-  "boletines_wf",
-  "seleccion_alumno_wf",
-  "alumnos_wf",
+  "alumno_avisos_wf?tipo=cm&cargado=true",
 ];
 
 type RuntimeState = {
@@ -96,7 +85,7 @@ export async function loginLive(input: {
     state.mode = "live";
     state.lastLoginAt = new Date().toISOString();
     state.lastError = undefined;
-    state.captures.main = page.html;
+    state.captures = { main: page.html };
     if (input.remember !== false) {
       const mode = input.protectWithMaster ? "master" : "device";
       await saveCredentials(
@@ -107,7 +96,6 @@ export async function loginLive(input: {
     try {
       return await buildDashboard(client);
     } catch (dashError) {
-      // Login worked; scraping can still fail. Return a minimal live dashboard.
       const students = parseStudents(page.html);
       const dashboard: Dashboard = {
         source: "live",
@@ -123,6 +111,16 @@ export async function loginLive(input: {
         messages: [],
         activities: [],
         behaviors: [],
+        subjects: [],
+        schedule: [],
+        diagnostics: {
+          pages: [{ key: "main", bytes: page.html.length, title: page.title }],
+          navLinks: extractNavLinks(page.html).slice(0, 40),
+          scrapeErrors: [
+            dashError instanceof Error ? dashError.message : "scrape parcial fallit",
+          ],
+          note: "Login OK, però el scrape parcial ha fallat.",
+        },
       };
       state.lastDashboard = dashboard;
       state.lastError =
@@ -195,59 +193,151 @@ export function getCaptures() {
   return Object.fromEntries(
     Object.entries(state.captures).map(([key, html]) => [
       key,
-      { bytes: html.length, preview: html.slice(0, 400) },
+      {
+        bytes: html.length,
+        preview: redactSensitive(html).slice(0, 400),
+        markers: summarizeMarkers(html),
+      },
     ]),
   );
 }
 
 export function getCaptureHtml(key: string) {
-  return state.captures[key] ?? null;
+  const html = state.captures[key];
+  return html ? redactSensitive(html) : null;
 }
 
 async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   const pages: Record<string, string> = {};
-  if (client.lastHtml) {
-    pages.main = client.lastHtml;
-    state.captures.main = client.lastHtml;
-  }
-  const nav = extractNavLinks(client.lastHtml || "");
-  const discovered = nav
-    .map((l) => normalizeTarget(l.href))
-    .filter((h): h is string => Boolean(h));
-  const targets = unique([...discovered, ...CANDIDATE_PATHS]).slice(0, 30);
-  for (const target of targets) {
+  const scrapeErrors: string[] = [];
+  state.captures = {};
+
+  const store = (key: string, html: string) => {
+    pages[key] = html;
+    state.captures[key] = html;
+  };
+
+  if (client.lastHtml) store("main", client.lastHtml);
+
+  // Always land on the real home: listar_alumnos_wf
+  for (const boot of BOOT_PATHS) {
     try {
-      const page = await client.get(target);
-      if (/login_wf/i.test(page.url)) continue;
-      pages[target] = page.html;
-      state.captures[target] = page.html;
-      // Follow secondary links inside each page (one level)
-      const inner = extractNavLinks(page.html)
-        .map((l) => normalizeTarget(l.href))
-        .filter((h): h is string => Boolean(h) && !pages[h!])
-        .slice(0, 6);
-      for (const next of inner) {
-        try {
-          const sub = await client.get(next);
-          if (/login_wf/i.test(sub.url)) continue;
-          pages[next] = sub.html;
-          state.captures[next] = sub.html;
-        } catch {
-          // ignore
-        }
+      const page = await client.get(boot);
+      if (/login_wf/i.test(page.url)) {
+        scrapeErrors.push(`${boot}: redirect login`);
+        continue;
       }
-    } catch {
-      // route may not exist for this center/user
+      store(captureKey(boot), page.html);
+      if (/listar_alumnos_wf|imc-alumno-nombre|imc-alumnos/i.test(page.html)) break;
+    } catch (err) {
+      scrapeErrors.push(
+        `${boot}: ${err instanceof Error ? err.message : "error"}`,
+      );
     }
   }
 
-  const students = parseStudents(Object.values(pages).join("\n"));
-  const notices = pickBest(pages, parseNotices, /avis|aviso|comunicat|comunicado|noticia/i);
-  const absences = pickBest(pages, parseAbsences, /falta|retard|retraso|asist|absen/i);
-  const grades = pickBest(pages, parseGrades, /nota|calific|avaluaci|evaluaci|boletin|butllet/i);
-  const messages = pickBest(pages, parseMessages, /missatge|mensaje|correu|correo|bandeja|mail/i);
-  const activities = pickBest(pages, parseActivities, /activitat|actividad|extraescol|agenda|sortida|salida/i);
-  const behaviors = pickBest(pages, parseBehaviors, /conducta|comport|observac|incidencia/i);
+  const homeHtml =
+    Object.entries(pages).find(([k]) => /listar_alumnos/i.test(k))?.[1] ||
+    pages.main ||
+    client.lastHtml ||
+    "";
+
+  const students = parseStudents(homeHtml);
+  const matriculas = parseMatriculaLinks(homeHtml);
+  const nav = extractNavLinks(homeHtml);
+
+  // Prefer first student's matriculas; also scrape siblings lightly
+  const matriculaTargets = matriculas.length
+    ? matriculas
+    : students.flatMap((s) =>
+        s.id
+          ? [
+              {
+                alumnoId: s.id,
+                matriculaId: "",
+                href: `alumno_datos_wf?alumno_id=${s.id}`,
+                label: s.name,
+              },
+            ]
+          : [],
+      );
+
+  for (const mat of matriculaTargets.slice(0, 4)) {
+    try {
+      const page = await client.get(mat.href);
+      if (/login_wf/i.test(page.url)) {
+        scrapeErrors.push(`${mat.href}: redirect login`);
+        continue;
+      }
+      store(captureKey(mat.href), page.html);
+      const sections = parseSectionTargets(page.html);
+      // Known section shortcuts if matricula HTML is already composed (browser dump)
+      const extras = [
+        ...sections.map((s) => s.href),
+        `alumno_avisos_wf?tipo=ag&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
+        `alumno_avisos_wf?tipo=as&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
+        `alumno_avisos_wf?tipo=ac&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
+        `alumno_avisos_wf?tipo=cm&cargado=true&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
+        `alumno_calificaciones_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
+        `alumno_materias_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
+        `alumno_horarios_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
+      ];
+      for (const href of unique(extras).slice(0, 16)) {
+        if (!href || pages[captureKey(href)]) continue;
+        try {
+          const sub = await client.get(href);
+          if (/login_wf/i.test(sub.url)) continue;
+          store(captureKey(href), sub.html);
+        } catch (err) {
+          scrapeErrors.push(
+            `${href}: ${err instanceof Error ? err.message : "error"}`,
+          );
+        }
+      }
+    } catch (err) {
+      scrapeErrors.push(
+        `${mat.href}: ${err instanceof Error ? err.message : "error"}`,
+      );
+    }
+  }
+
+  // If home already has composed desktop HTML (like the user paste), parse it directly
+  const notices = mergeUnique(
+    pickBest(pages, parseNotices, /agenda|avis|aviso/i),
+    parseNotices(homeHtml),
+    (n) => n.id + n.title,
+  );
+  const absences = mergeUnique(
+    pickBest(pages, parseAbsences, /assist|asist|falta/i),
+    parseAbsences(homeHtml),
+    (a) => a.id + a.date,
+  );
+  const grades = mergeUnique(
+    pickBest(pages, parseGrades, /calific|qualific|nota/i),
+    parseGrades(homeHtml),
+    (g) => g.id + g.subject,
+  );
+  const messages = mergeUnique(
+    pickBest(pages, parseMessages, /comunic|missatge|mensaje|tipo=cm/i),
+    parseMessages(homeHtml),
+    (m) => m.id + m.subject,
+  );
+  const activities = mergeUnique(
+    pickBest(pages, parseActivities, /activitat|actividad/i),
+    parseActivities(homeHtml),
+    (a) => a.id + a.title,
+  );
+  const subjects = mergeUnique(
+    pickBest(pages, parseSubjects, /materia|assignatur/i),
+    parseSubjects(homeHtml),
+    (s) => s.subject,
+  );
+  const schedule = mergeUnique(
+    pickBest(pages, parseSchedule, /horario|horari/i),
+    parseSchedule(homeHtml),
+    (s) => `${s.day}-${s.start}-${s.subject}`,
+  );
+  const behaviors = parseBehaviors(homeHtml);
 
   const diagnostics = {
     pages: Object.entries(pages).map(([key, html]) => ({
@@ -257,8 +347,16 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       links: extractNavLinks(html).length,
     })),
     navLinks: nav.slice(0, 40),
+    scrapeErrors: scrapeErrors.slice(0, 20),
     note:
-      notices.length + absences.length + grades.length + messages.length === 0
+      notices.length +
+        absences.length +
+        grades.length +
+        messages.length +
+        activities.length +
+        schedule.length +
+        subjects.length ===
+      0
         ? "S'ha capturat HTML però els parsers no han trobat files. Mira /api/debug/captures"
         : undefined,
   };
@@ -274,32 +372,20 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     messages,
     activities,
     behaviors,
+    subjects,
+    schedule,
     diagnostics,
   };
   state.lastDashboard = dashboard;
   return dashboard;
 }
 
-function normalizeTarget(href: string) {
-  const raw = href.trim();
-  if (!raw || raw === "#" || raw.startsWith("mailto:") || raw.startsWith("tel:")) return null;
-  let pathPart = raw;
-  let search = "";
-  if (/^https?:/i.test(raw)) {
-    if (!/familia\.edu\.gva\.es/i.test(raw)) return null;
-    const u = new URL(raw);
-    pathPart = u.pathname;
-    search = u.search;
-  } else {
-    const q = raw.indexOf("?");
-    if (q >= 0) {
-      pathPart = raw.slice(0, q);
-      search = raw.slice(q);
-    }
-  }
-  const file = pathPart.split("/").filter(Boolean).pop() || "";
-  if (!file || /login_wf/i.test(file)) return null;
-  return file + search;
+function captureKey(href: string) {
+  return href
+    .replace(/^https?:\/\/[^/]+/i, "")
+    .replace(/^.*\//, "")
+    .replace(/[?&=]/g, "_")
+    .slice(0, 120) || "page";
 }
 
 function pickBest<T>(
@@ -321,6 +407,52 @@ function pickBest<T>(
   return best;
 }
 
+function mergeUnique<T>(a: T[], b: T[], key: (item: T) => string) {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of [...a, ...b]) {
+    const k = key(item);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
 function unique(items: string[]) {
-  return [...new Set(items.map((i) => i.replace(/^\.\//, "")))];
+  return [...new Set(items.map((i) => i.replace(/^\.\//, "").trim()).filter(Boolean))];
+}
+
+function redactSensitive(html: string) {
+  return html
+    .replace(
+      /(name=["']tokenSesion["'][^>]*value=["'])[^"']*(["'])/gi,
+      "$1[redacted]$2",
+    )
+    .replace(
+      /(id=["']tokenSesion["'][^>]*value=["'])[^"']*(["'])/gi,
+      "$1[redacted]$2",
+    )
+    .replace(
+      /(Contrasenya inicial[\s\S]*?<li>)[^<]+(<\/li>)/gi,
+      "$1[redacted]$2",
+    )
+    .replace(
+      /(Clau recuperaci[oó][\s\S]*?<li>)[^<]+(<\/li>)/gi,
+      "$1[redacted]$2",
+    );
+}
+
+function summarizeMarkers(html: string) {
+  const markers = [
+    "imc-alumno-nombre",
+    "imc-listado-agenda",
+    "imc-avisos-modulo",
+    "imc-horarios",
+    "imc-materias-tabla",
+    "imc-matricula-menu",
+    "imc-form-login",
+    "imc-sesion-caducada",
+  ];
+  return markers.filter((m) => html.includes(m));
 }
