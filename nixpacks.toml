@@ -1,0 +1,4 @@
+# https://nixpacks.com/docs/configuration/file
+[variables]
+NPM_CONFIG_PRODUCTION = "false"
+NIXPACKS_NODE_VERSION = "22"

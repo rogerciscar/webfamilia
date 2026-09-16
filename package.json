@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -n bridge,web -c cyan,magenta \"npm run dev -w @pont/bridge\" \"npm run dev -w @pont/web\"",
-    "build": "npm run build -w @pont/web && npm run build -w @pont/bridge",
+    "build": "npm run build -w @pont/web && node scripts/copy-web-dist.mjs && npm run build -w @pont/bridge",
     "start": "npm run start -w @pont/bridge",
     "typecheck": "npm run typecheck -w @pont/bridge && npm run typecheck -w @pont/web"
   },

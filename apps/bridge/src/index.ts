@@ -20,9 +20,25 @@ import {
 } from "./session";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const webDistAbs = path.resolve(__dirname, "../../web/dist");
-const webDistRel = path.relative(process.cwd(), webDistAbs) || ".";
-const hasWebDist = existsSync(path.join(webDistAbs, "index.html"));
+
+function resolveWebRoot() {
+  const candidates = [
+    path.resolve(__dirname, "../public"),
+    path.resolve(process.cwd(), "apps/bridge/public"),
+    path.resolve(process.cwd(), "public"),
+    path.resolve(__dirname, "../../web/dist"),
+    path.resolve(process.cwd(), "apps/web/dist"),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(path.join(dir, "index.html"))) return dir;
+  }
+  return null;
+}
+
+const webRootAbs = resolveWebRoot();
+const webRootRel = webRootAbs
+  ? path.relative(process.cwd(), webRootAbs) || "."
+  : null;
 
 const app = new Hono();
 const port = Number(process.env.PORT ?? 8787);
@@ -36,7 +52,12 @@ app.use(
 );
 
 app.get("/api/health", (c) =>
-  c.json({ ok: true, service: "pont-bridge", web: hasWebDist }),
+  c.json({
+    ok: true,
+    service: "pont-bridge",
+    web: Boolean(webRootAbs),
+    webRoot: webRootAbs,
+  }),
 );
 
 app.get("/api/session", async (c) => {
@@ -116,23 +137,29 @@ app.get("/api/debug/captures/:key", (c) => {
   return c.html(html);
 });
 
-if (hasWebDist) {
-  app.use("/*", serveStatic({ root: webDistRel }));
+if (webRootAbs && webRootRel) {
+  app.use("/*", serveStatic({ root: webRootRel }));
   app.get("*", async (c) => {
     if (c.req.path.startsWith("/api/")) return c.text("Not found", 404);
-    const html = await readFile(path.join(webDistAbs, "index.html"), "utf8");
+    const html = await readFile(path.join(webRootAbs, "index.html"), "utf8");
     return c.html(html);
   });
 } else {
   app.get("*", async (c, next) => {
     if (c.req.path.startsWith("/api/")) return next();
-    return c.text(
-      "Pont bridge API. En local obri http://localhost:5173. En producció cal `npm run build`.",
+    return c.html(
+      `<!doctype html><html lang="ca"><body style="font-family:system-ui;padding:2rem">
+        <h1>Pont</h1>
+        <p>La webapp no s'ha construït en aquest deploy.</p>
+        <p>Revisa els logs de build a Railway: ha de existir <code>apps/bridge/public/index.html</code>.</p>
+        <p><a href="/api/health">/api/health</a></p>
+      </body></html>`,
+      500,
     );
   });
 }
 
 console.log(
-  `Pont bridge listening on :${port} (web: ${hasWebDist ? webDistAbs : "missing"})`,
+  `Pont listening on 0.0.0.0:${port} · web=${webRootAbs ?? "MISSING"}`,
 );
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
