@@ -12,6 +12,8 @@ import type {
 } from "@pont/shared";
 import { extractDateLabel, toIsoDate } from "./dates";
 
+export type StudentCtx = { studentId?: string; studentName?: string };
+
 function clean(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -115,10 +117,7 @@ export function parseSectionTargets(html: string) {
   return uniqueBy(targets, (t) => t.href);
 }
 
-export function parseNotices(
-  html: string,
-  ctx?: { studentId?: string; studentName?: string },
-): Notice[] {
+export function parseNotices(html: string, ctx?: StudentCtx): Notice[] {
   const $ = cheerio.load(html);
   const notices: Notice[] = [];
   $(".imc-avisos-modulo").each((_, mod) => {

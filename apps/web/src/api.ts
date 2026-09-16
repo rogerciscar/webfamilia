@@ -42,6 +42,8 @@ export type Absence = {
   kind: "falta" | "retard" | "desconegut";
   justified?: boolean;
   comment?: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type Grade = {
@@ -50,6 +52,8 @@ export type Grade = {
   evaluation?: string;
   value: string;
   comment?: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type Message = {
@@ -59,6 +63,8 @@ export type Message = {
   date?: string;
   preview?: string;
   unread?: boolean;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type Activity = {
@@ -68,6 +74,8 @@ export type Activity = {
   dateIso?: string;
   place?: string;
   description?: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type Behavior = {
@@ -76,6 +84,8 @@ export type Behavior = {
   subject?: string;
   description: string;
   kind?: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type Subject = {
@@ -83,6 +93,8 @@ export type Subject = {
   subject: string;
   teacher?: string;
   attention?: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type ScheduleSlot = {
@@ -91,6 +103,8 @@ export type ScheduleSlot = {
   start?: string;
   end?: string;
   subject: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type MenuDay = {
@@ -132,6 +146,7 @@ export type Dashboard = {
     pages: { key: string; bytes: number; title?: string; links?: number }[];
     navLinks: { href: string; text: string }[];
     scrapeErrors?: string[];
+    scrapedStudents?: { id: string; name: string; notices: number; schedule: number; subjects: number }[];
     note?: string;
   };
 };

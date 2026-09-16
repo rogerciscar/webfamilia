@@ -12,7 +12,6 @@ import {
   parseStudents,
   parseSubjects,
   enrichStudent,
-  pageScore,
 } from "./parsers";
 import { mockDashboard } from "./mock";
 import { extractNavLinks, WebFamiliaClient } from "./webfamilia";
@@ -269,6 +268,12 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   const menus: MenuExtraction[] = [];
   const seenPdf = new Set<string>();
   let notices: Notice[] = [];
+  let absences: Dashboard["absences"] = [];
+  let grades: Dashboard["grades"] = [];
+  let messages: Dashboard["messages"] = [];
+  let activities: Dashboard["activities"] = [];
+  let subjects: Dashboard["subjects"] = [];
+  let schedule: Dashboard["schedule"] = [];
 
   for (const student of students.slice(0, 3)) {
     try {
@@ -301,8 +306,11 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
           : [],
       );
 
-  for (const mat of matriculaTargets.slice(0, 4)) {
+  // Scrape EACH student fully on the server (not only the active UI tab)
+  for (const mat of matriculaTargets.slice(0, 6)) {
     const student = students.find((s) => s.id === mat.alumnoId);
+    const ctx = { studentId: mat.alumnoId, studentName: student?.name };
+    const studentPages: string[] = [];
     try {
       const matHref =
         mat.matriculaId
@@ -313,7 +321,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
         scrapeErrors.push(`${matHref}: redirect login`);
         continue;
       }
-      store(captureKey(matHref), page.html);
+      store(`st_${mat.alumnoId}_${captureKey(matHref)}`, page.html);
+      studentPages.push(page.html);
       if (student) {
         students = students.map((s) =>
           s.id === student.id ? enrichStudent(page.html, s) : s,
@@ -331,7 +340,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
         `alumno_horarios_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
       ];
       for (const href of unique(extras).slice(0, 18)) {
-        if (!href || pages[captureKey(href)]) continue;
+        const pageKey = `st_${mat.alumnoId}_${captureKey(href)}`;
+        if (!href || pages[pageKey]) continue;
         try {
           const sub = await client.get(href);
           if (/login_wf/i.test(sub.url)) continue;
@@ -339,35 +349,59 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
           const fragment = $(".imc-contenido").first().html();
           const html =
             fragment ? `<div class="imc-contenido">${fragment}</div>${sub.html}` : sub.html;
-          store(captureKey(href), html);
-          if (/tipo=ag|agenda|avisos/i.test(href)) {
-            const agendaNotices = parseNotices(html, {
-              studentId: mat.alumnoId,
-              studentName: student?.name,
-            });
-            notices = mergeUnique(notices, agendaNotices, (n) => `${n.studentId || ""}:${n.id}:${n.title}`);
-          }
+          store(pageKey, html);
+          studentPages.push(html);
         } catch (err) {
           scrapeErrors.push(`${href}: ${err instanceof Error ? err.message : "error"}`);
         }
       }
+
+      const blob = studentPages.join("\n");
+      notices = mergeUnique(
+        notices,
+        parseNotices(blob, ctx),
+        (n) => `${n.studentId || ""}:${n.id}:${n.title}`,
+      );
+      absences = mergeUnique(
+        absences,
+        tagStudent(parseAbsences(blob), ctx),
+        (a) => `${a.studentId}:${a.id}:${a.date}`,
+      );
+      grades = mergeUnique(
+        grades,
+        tagStudent(parseGrades(blob), ctx),
+        (g) => `${g.studentId}:${g.id}:${g.subject}:${g.value}`,
+      );
+      messages = mergeUnique(
+        messages,
+        tagStudent(parseMessages(blob), ctx),
+        (m) => `${m.studentId}:${m.id}:${m.subject}`,
+      );
+      activities = mergeUnique(
+        activities,
+        tagStudent(parseActivities(blob), ctx),
+        (a) => `${a.studentId}:${a.id}:${a.title}`,
+      );
+      subjects = mergeUnique(
+        subjects,
+        tagStudent(parseSubjects(blob), ctx),
+        (s) => `${s.studentId}:${s.subject}`,
+      );
+      schedule = mergeUnique(
+        schedule,
+        tagStudent(parseSchedule(blob), ctx).map((s, i) => ({
+          ...s,
+          id: `${ctx.studentId}-${s.id}-${i}`,
+        })),
+        (s) => `${s.studentId}:${s.day}:${s.start}:${s.subject}`,
+      );
     } catch (err) {
       scrapeErrors.push(`${mat.href}: ${err instanceof Error ? err.message : "error"}`);
     }
   }
 
-  // Also parse agenda from any composed home HTML
-  notices = mergeUnique(
-    notices,
-    parseNotices(homeHtml, {
-      studentId: students[0]?.id,
-      studentName: students[0]?.name,
-    }),
-    (n) => `${n.studentId || ""}:${n.id}:${n.title}`,
-  );
-
   // Open aviso details and pull PDFs (Agenda → PDF)
-  for (const notice of notices.slice(0, 12)) {
+  for (const notice of notices.slice(0, 16)) {
     if (!notice.detailHref && !notice.hasDetail) continue;
     const detailHref =
       notice.detailHref ||
@@ -375,7 +409,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     try {
       const detail = await client.get(detailHref);
       if (/login_wf/i.test(detail.url)) continue;
-      store(captureKey(detailHref), detail.html);
+      store(`detail_${notice.studentId || "x"}_${captureKey(detailHref)}`, detail.html);
       const docLinks = parseDocumentLinks(detail.html, detail.url);
       for (const doc of docLinks.slice(0, 4)) {
         try {
@@ -397,7 +431,10 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
             noticeId: notice.id,
             studentId: notice.studentId,
           });
-          if (seenPdf.has(att.sha256)) continue;
+          if (seenPdf.has(att.sha256)) {
+            notice.attachments = [...(notice.attachments || []), att];
+            continue;
+          }
           seenPdf.add(att.sha256);
           attachments.push(att);
           notice.attachments = [...(notice.attachments || []), att];
@@ -431,38 +468,15 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   }
 
   state.structure = analyzePages(pages);
-
-  const absences = mergeUnique(
-    pickBest(pages, parseAbsences, /assist|asist|falta/i),
-    parseAbsences(homeHtml),
-    (a) => a.id + a.date,
-  );
-  const grades = mergeUnique(
-    pickBest(pages, parseGrades, /calific|qualific|nota/i),
-    parseGrades(homeHtml),
-    (g) => g.id + g.subject,
-  );
-  const messages = mergeUnique(
-    pickBest(pages, parseMessages, /comunic|missatge|mensaje|tipo=cm/i),
-    parseMessages(homeHtml),
-    (m) => m.id + m.subject,
-  );
-  const activities = mergeUnique(
-    pickBest(pages, parseActivities, /activitat|actividad/i),
-    parseActivities(homeHtml),
-    (a) => a.id + a.title,
-  );
-  const subjects = mergeUnique(
-    pickBest(pages, parseSubjects, /materia|assignatur/i),
-    parseSubjects(homeHtml),
-    (s) => s.subject,
-  );
-  const schedule = mergeUnique(
-    pickBest(pages, parseSchedule, /horario|horari/i),
-    parseSchedule(homeHtml),
-    (s) => `${s.day}-${s.start}-${s.subject}`,
-  );
   const behaviors = parseBehaviors(homeHtml);
+
+  const scrapedStudents = students.map((s) => ({
+    id: s.id,
+    name: s.name,
+    notices: notices.filter((n) => n.studentId === s.id).length,
+    schedule: schedule.filter((h) => h.studentId === s.id).length,
+    subjects: subjects.filter((x) => x.studentId === s.id).length,
+  }));
 
   const diagnostics = {
     pages: Object.entries(pages).map(([key, html]) => ({
@@ -473,6 +487,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     })),
     navLinks: nav.slice(0, 40),
     scrapeErrors: scrapeErrors.slice(0, 30),
+    scrapedStudents,
     note:
       notices.length +
         absences.length +
@@ -507,31 +522,19 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   return dashboard;
 }
 
+function tagStudent<T extends object>(
+  items: T[],
+  ctx: { studentId: string; studentName?: string },
+): (T & { studentId: string; studentName?: string })[] {
+  return items.map((item) => ({ ...item, studentId: ctx.studentId, studentName: ctx.studentName }));
+}
+
 function captureKey(href: string) {
   return href
     .replace(/^https?:\/\/[^/]+/i, "")
     .replace(/^.*\//, "")
     .replace(/[?&=]/g, "_")
     .slice(0, 120) || "page";
-}
-
-function pickBest<T>(
-  pages: Record<string, string>,
-  parse: (html: string) => T[],
-  keywords: RegExp,
-) {
-  let best: T[] = [];
-  let bestScore = -1;
-  for (const [key, html] of Object.entries(pages)) {
-    const items = parse(html);
-    if (!items.length) continue;
-    const score = items.length * 10 + pageScore(key, html, keywords);
-    if (score > bestScore) {
-      bestScore = score;
-      best = items;
-    }
-  }
-  return best;
 }
 
 function mergeUnique<T>(a: T[], b: T[], key: (item: T) => string) {

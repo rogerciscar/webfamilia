@@ -132,7 +132,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (dashboard?.student) setStudentId(dashboard.student.id);
+    if (!dashboard?.students?.length) return;
+    setStudentId((prev) =>
+      prev && dashboard.students.some((s) => s.id === prev)
+        ? prev
+        : dashboard.student?.id ?? dashboard.students[0].id,
+    );
   }, [dashboard]);
 
   async function onMock() {
@@ -402,6 +407,17 @@ export default function App() {
   const student =
     dashboard.students.find((s) => s.id === studentId) ?? dashboard.student ?? null;
 
+  const sid = student?.id;
+  const notices = forStudent(dashboard.notices, sid);
+  const absences = forStudent(dashboard.absences, sid);
+  const grades = forStudent(dashboard.grades, sid);
+  const messages = forStudent(dashboard.messages, sid);
+  const activities = forStudent(dashboard.activities, sid);
+  const subjects = forStudent(dashboard.subjects ?? [], sid);
+  const schedule = forStudent(dashboard.schedule ?? [], sid);
+  const attachments = forStudent(dashboard.attachments ?? [], sid);
+  const scrapeInfo = dashboard.diagnostics?.scrapedStudents?.find((s) => s.id === sid);
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -420,6 +436,9 @@ export default function App() {
               <i aria-hidden="true" />
               {dashboard.source === "mock" ? "Exemple" : "En viu"} ·{" "}
               {new Date(dashboard.capturedAt).toLocaleString("ca-ES")}
+              {scrapeInfo
+                ? ` · ${scrapeInfo.notices} avisos · ${scrapeInfo.schedule} hores`
+                : ""}
             </p>
           </div>
         </div>
@@ -440,7 +459,9 @@ export default function App() {
       </header>
       {dashboard.students.length > 1 && (
         <div className="students" role="tablist" aria-label="Alumnes">
-          {dashboard.students.map((s) => (
+          {dashboard.students.map((s) => {
+            const info = dashboard.diagnostics?.scrapedStudents?.find((x) => x.id === s.id);
+            return (
             <button
               key={s.id}
               type="button"
@@ -448,8 +469,10 @@ export default function App() {
               onClick={() => setStudentId(s.id)}
             >
               {s.name.split(" ")[0]}
+              {info ? ` · ${info.notices}` : ""}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
       <nav className="tabs" aria-label="Seccions">
@@ -483,9 +506,9 @@ export default function App() {
         </p>
       )}
       {tab === "avisos" && (
-        <Section title="Avisos" count={dashboard.notices.length}>
-          {dashboard.notices.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          {dashboard.notices.length > 0 && (
+        <Section title="Avisos" count={notices.length}>
+          {notices.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+          {notices.length > 0 && (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
@@ -497,7 +520,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.notices.map((n) => (
+                  {notices.map((n) => (
                     <tr key={`${n.studentId || ""}-${n.id}`}>
                       <td className="time">{n.dateIso || n.date || "—"}</td>
                       <td className="cell-main">
@@ -524,7 +547,15 @@ export default function App() {
           )}
           {(dashboard.menus?.length ?? 0) > 0 && (
             <div className="table-stack" style={{ marginTop: "1.25rem" }}>
-              {dashboard.menus!.map((menu) => (
+              {dashboard.menus!
+                .filter(
+                  (menu) =>
+                    !sid ||
+                    !menu.attachmentId ||
+                    attachments.some((a) => a.id === menu.attachmentId) ||
+                    notices.some((n) => n.attachments?.some((a) => a.id === menu.attachmentId)),
+                )
+                .map((menu) => (
                 <div className="day-block" key={menu.sourceFile + menu.attachmentId}>
                   <h3>
                     Menú {menu.month}/{menu.year}
@@ -566,9 +597,9 @@ export default function App() {
         </Section>
       )}
       {tab === "faltes" && (
-        <Section title="Faltes i retards" count={dashboard.absences.length}>
-          {dashboard.absences.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          {dashboard.absences.length > 0 && (
+        <Section title="Faltes i retards" count={absences.length}>
+          {absences.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+          {absences.length > 0 && (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
@@ -580,7 +611,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.absences.map((a) => (
+                  {absences.map((a) => (
                     <tr key={a.id}>
                       <td className="time">{a.date}</td>
                       <td>
@@ -601,13 +632,13 @@ export default function App() {
       {tab === "notes" && (
         <Section
           title="Notes i assignatures"
-          count={dashboard.grades.length + (dashboard.subjects?.length ?? 0)}
+          count={grades.length + (subjects.length)}
         >
-          {dashboard.grades.length === 0 && !(dashboard.subjects?.length) && (
+          {grades.length === 0 && subjects.length === 0 && (
             <Empty diagnostics={dashboard.diagnostics} />
           )}
           <div className="table-stack">
-            {dashboard.grades.length > 0 && (
+            {grades.length > 0 && (
               <div className="day-block">
                 <h3>Qualificacions</h3>
                 <div className="table-scroll">
@@ -620,7 +651,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dashboard.grades.map((g) => (
+                      {grades.map((g) => (
                         <tr key={g.id}>
                           <td className="cell-main">{g.subject}</td>
                           <td className="cell-soft">{g.evaluation || "—"}</td>
@@ -632,7 +663,7 @@ export default function App() {
                 </div>
               </div>
             )}
-            {(dashboard.subjects?.length ?? 0) > 0 && (
+            {(subjects.length) > 0 && (
               <div className="day-block">
                 <h3>Assignatures</h3>
                 <div className="table-scroll">
@@ -645,7 +676,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(dashboard.subjects ?? []).map((s) => (
+                      {(subjects).map((s) => (
                         <tr key={s.id}>
                           <td className="cell-main">{s.subject}</td>
                           <td className="cell-soft">{s.teacher || "—"}</td>
@@ -661,9 +692,9 @@ export default function App() {
         </Section>
       )}
       {tab === "missatges" && (
-        <Section title="Missatges" count={dashboard.messages.length}>
-          {dashboard.messages.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          {dashboard.messages.length > 0 && (
+        <Section title="Missatges" count={messages.length}>
+          {messages.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+          {messages.length > 0 && (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
@@ -674,7 +705,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.messages.map((m) => (
+                  {messages.map((m) => (
                     <tr key={m.id}>
                       <td className="time">{m.date || "—"}</td>
                       <td className="cell-soft">{m.from}</td>
@@ -688,9 +719,9 @@ export default function App() {
         </Section>
       )}
       {tab === "activitats" && (
-        <Section title="Activitats" count={dashboard.activities.length}>
-          {dashboard.activities.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          {dashboard.activities.length > 0 && (
+        <Section title="Activitats" count={activities.length}>
+          {activities.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+          {activities.length > 0 && (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
@@ -701,7 +732,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.activities.map((a) => (
+                  {activities.map((a) => (
                     <tr key={a.id}>
                       <td className="time">{a.date || "—"}</td>
                       <td className="cell-main">{a.title}</td>
@@ -715,11 +746,11 @@ export default function App() {
         </Section>
       )}
       {tab === "horaris" && (
-        <Section title="Horaris" count={dashboard.schedule?.length ?? 0}>
-          {!(dashboard.schedule?.length) && <Empty diagnostics={dashboard.diagnostics} />}
-          {(dashboard.schedule?.length ?? 0) > 0 && (
+        <Section title="Horaris" count={schedule.length}>
+          {!(schedule.length) && <Empty diagnostics={dashboard.diagnostics} />}
+          {(schedule.length) > 0 && (
             <div className="table-stack">
-              {groupScheduleByDay(dashboard.schedule ?? []).map(([day, slots]) => (
+              {groupScheduleByDay(schedule).map(([day, slots]) => (
                 <div className="day-block" key={day}>
                   <h3>{day}</h3>
                   <div className="table-scroll">
@@ -768,9 +799,17 @@ export default function App() {
         )}
         {showAdmin && (
           <p className="hint">
-            Rescanejar torna a demanar les pàgines a Web Família amb la sessió actual,
-            aplica els parsers d&apos;ara mateix i refresca el dashboard. El JSON és
-            diagnòstic (no “aprèn” sol una estructura nova).
+            El servidor ja descarrega agenda, horaris i assignatures de cada alumne
+            en login / Act. / Rescanejar. Canviar de pestanya només filtra el que ja
+            s&apos;ha scrapejat. El JSON és diagnòstic.
+          </p>
+        )}
+        {showAdmin && (dashboard.diagnostics?.scrapedStudents?.length ?? 0) > 0 && (
+          <p className="hint">
+            Scrapejat:{" "}
+            {dashboard.diagnostics!.scrapedStudents!
+              .map((s) => `${s.name.split(" ")[0]} (${s.notices} avisos, ${s.schedule} hores, ${s.subjects} mat.)`)
+              .join(" · ")}
           </p>
         )}
         {showAdmin && structureJson && <pre>{structureJson}</pre>}
@@ -780,6 +819,14 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function forStudent<T extends { studentId?: string }>(items: T[], sid?: string | null) {
+  if (!sid) return items;
+  const tagged = items.filter((i) => i.studentId === sid);
+  // If scrape still has untagged rows, keep them only when no tagged data exists for this student
+  if (tagged.length) return tagged;
+  return items.filter((i) => !i.studentId);
 }
 
 function Section({
