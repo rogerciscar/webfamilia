@@ -26,20 +26,15 @@ En la pantalla inicial puedes:
 
 ## Deploy a Railway
 
-Railway **no publica solo** porque el repo esté en GitHub: hay que crear (o reconectar) un servicio.
+Eso de `Pont bridge API. Obri el frontend…` salía porque el deploy arrancaba **solo la API** sin la web construida. Ya está corregido: el build genera la webapp y el mismo servicio la sirve.
 
-1. Entra en [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → `rogerciscar/webfamilia`
-2. Usa **un solo servicio** (API + web juntos). Railway leerá `railway.toml`.
-3. En el servicio → **Settings** → **Networking** → **Generate Domain**
-4. (Recomendado) **Volumes** → monta un volumen en `/data` y añade variable:
-   - `PONT_DATA_DIR=/data`
-   Así el login recordado sobrevive a redeploys.
-5. Redeploy si hace falta. Healthcheck: `/api/health`
+1. [railway.app](https://railway.app) → proyecto con repo `rogerciscar/webfamilia` (branch `main`)
+2. Un solo servicio. Debe usar `railway.toml`
+3. **Settings → Networking → Generate Domain**
+4. **Redeploy** tras este push
+5. (Recomendado) Volume en `/data` + variable `PONT_DATA_DIR=/data` para recordar login
 
-Build: `npm ci && npm run build`  
-Start: `npm start` (sirve API + frontend estático)
-
-Si ya tenías un proyecto Railway apuntando al repo vacío, abre ese proyecto → **Settings** → confirma que el repo/branch es `main`, y fuerza un **Redeploy**.
+Comprueba `/api/health`: debe devolver `"web": true`.
 
 ## Cómo funciona
 
