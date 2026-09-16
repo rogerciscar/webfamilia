@@ -50,7 +50,13 @@ export function enrichStudent(html: string, base: Student): Student {
     (html.match(/NIA[^0-9]*(\d{6,})/i)?.[1] ?? undefined);
   const tutorName =
     clean($(".imc-matricula-tutor strong").first().text()) ||
-    clean($(".imc-matricula-tutor p").first().text().replace(/^Tutor[ao]s?\s*/i, "")) ||
+    clean(
+      $(".imc-matricula-tutor p")
+        .first()
+        .text()
+        .replace(/^Tutor\s*o?\s*tutor[ao]?s?\s*/i, ""),
+    ) ||
+    clean($("[class*='tutor'] strong").first().text()) ||
     undefined;
   const group =
     clean($("a.imc-al-matricula.imc-seleccionada, .imc-alumno-matriculas a").first().text()) ||
@@ -173,33 +179,78 @@ export function parseDocumentLinks(html: string, baseUrl = "https://familia.edu.
 export function parseAbsences(html: string): Absence[] {
   const $ = cheerio.load(html);
   const absences: Absence[] = [];
+  const pushLi = (li: unknown, i: number) => {
+    const el = $(li as never);
+    if (el.find(".imc-sin-datos").length) return;
+    const a = el.find("a").first();
+    const date =
+      clean(el.attr("data-date") || "") ||
+      clean(a.find("span").first().text()) ||
+      extractDateLabel(clean(el.text())) ||
+      "";
+    const subject =
+      clean(a.find("strong").first().text()) ||
+      clean(el.find("strong").first().text()) ||
+      clean(a.text()) ||
+      undefined;
+    const blob = clean(el.text());
+    if (!date && !subject) return;
+    if (/no hi ha faltes|sin faltas|no hay faltas/i.test(blob)) return;
+    absences.push({
+      id: a.attr("data-id") || el.attr("data-id") || `a-${i}-${date}-${subject || ""}`,
+      date: date || "—",
+      dateIso: toIsoDate(date),
+      subject,
+      kind: /retard|retraso/.test(blob.toLowerCase()) ? "retard" : "falta",
+      justified: /justific/i.test(blob),
+      comment: blob,
+    });
+  };
   $(".imc-avisos-modulo").each((_, mod) => {
     const title = clean($(mod).find("h2").first().text());
-    if (!/assist|asist|falta/i.test(title)) return;
-    if ($(mod).find(".imc-sin-datos").length) return;
-    $(mod)
-      .find("ul.imc-listado-detalle li")
-      .each((i, li) => {
-        const a = $(li).find("a").first();
-        const date =
-          clean($(li).attr("data-date") || "") ||
-          clean(a.find("span").first().text()) ||
-          "";
-        const subject = clean(a.find("strong").first().text()) || clean(a.text());
-        if (!date && !subject) return;
-        const blob = clean($(li).text()).toLowerCase();
+    if (title && !/assist|asist|falta/i.test(title)) return;
+    if ($(mod).find(".imc-sin-datos").length && !$(mod).find("ul li").length) return;
+    $(mod).find("ul.imc-listado-detalle li, ul.imc-listado-agenda li, table tbody tr").each((i, li) => {
+      if ($(li).is("tr")) {
+        const cells = $(li).find("td, th").toArray().map((c) => clean($(c).text())).filter(Boolean);
+        if (cells.length < 2) return;
+        const blob = cells.join(" ");
+        if (/no hi ha|sin faltas/i.test(blob)) return;
+        const date = extractDateLabel(blob) || cells[0];
         absences.push({
-          id: a.attr("data-id") || `a-${i}`,
+          id: `tr-${i}-${date}`,
           date: date || "—",
           dateIso: toIsoDate(date),
-          subject: subject || undefined,
-          kind: /retard|retraso/.test(blob) ? "retard" : "falta",
+          subject: cells.find((c) => c !== date && !/falta|retard|justific/i.test(c)) || undefined,
+          kind: /retard|retraso/.test(blob.toLowerCase()) ? "retard" : "falta",
           justified: /justific/i.test(blob),
-          comment: clean($(li).text()),
+          comment: blob,
         });
-      });
+        return;
+      }
+      pushLi(li, i);
+    });
   });
-  return absences;
+  if (absences.length) return uniqueBy(absences, (a) => `${a.date}:${a.subject}:${a.kind}`);
+  // AJAX fragment without modulo wrapper (tipo=as)
+  $("ul.imc-listado-detalle li, ul.imc-listado-agenda li").each((i, li) => pushLi(li, i));
+  $("table.imc-tabla tbody tr, table tbody tr").each((i, tr) => {
+    const cells = $(tr).find("td").toArray().map((c) => clean($(c).text())).filter(Boolean);
+    if (cells.length < 2) return;
+    const blob = cells.join(" ");
+    if (!/falta|retard|assist|asist|aus[eè]n/i.test(blob + html.slice(0, 400))) return;
+    const date = extractDateLabel(blob) || cells[0];
+    absences.push({
+      id: `tbl-${i}-${date}`,
+      date: date || "—",
+      dateIso: toIsoDate(date),
+      subject: cells[1],
+      kind: /retard|retraso/.test(blob.toLowerCase()) ? "retard" : "falta",
+      justified: /justific/i.test(blob),
+      comment: blob,
+    });
+  });
+  return uniqueBy(absences, (a) => `${a.date}:${a.subject}:${a.kind}`);
 }
 
 export function parseActivities(html: string): Activity[] {

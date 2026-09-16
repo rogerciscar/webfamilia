@@ -5,9 +5,11 @@ import {
   fetchSession,
   forget,
   login,
+  logout,
   startMock,
   unlock,
   type Dashboard,
+  type MenuExtraction,
   type ScheduleSlot,
   type SessionStatus,
 } from "./api";
@@ -17,10 +19,11 @@ import {
   saveRememberedLogin,
 } from "./remember";
 
-type Tab = "avisos" | "faltes" | "notes" | "missatges" | "activitats" | "horaris";
+type Tab = "avisos" | "menus" | "faltes" | "notes" | "missatges" | "activitats" | "horaris";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "avisos", label: "Avisos", icon: "◎" },
+  { id: "menus", label: "Menús", icon: "◉" },
   { id: "faltes", label: "Faltes", icon: "◷" },
   { id: "notes", label: "Notes", icon: "✎" },
   { id: "missatges", label: "Msgs", icon: "✉" },
@@ -70,56 +73,19 @@ export default function App() {
         const remembered = loadRememberedLogin();
         if (remembered) {
           setUsername(remembered.username);
-          setPassword(remembered.password);
+          if (remembered.password) setPassword(remembered.password);
           setRemember(true);
           setShowLive(true);
         }
         const status = await fetchSession();
         if (cancelled) return;
         setSession(status);
+        // Only show dashboard if this browser has a valid session cookie
         if (status.authenticated && status.dashboard) {
           setDashboard(status.dashboard);
           return;
         }
-        if (status.hasStoredCredentials && status.vaultMode === "device") {
-          if (!status.authenticated && remembered) {
-            try {
-              const res = await login({
-                username: remembered.username,
-                password: remembered.password,
-                remember: true,
-                idioma: "V",
-              });
-              if (cancelled) return;
-              setSession(res.session);
-              setDashboard(res.dashboard);
-              return;
-            } catch (err) {
-              if (!cancelled) {
-                setError(err instanceof Error ? err.message : "No s'ha pogut restaurar la sessió");
-              }
-            }
-          } else {
-            setError(status.error ?? null);
-          }
-        } else if (remembered && !status.authenticated) {
-          try {
-            const res = await login({
-              username: remembered.username,
-              password: remembered.password,
-              remember: true,
-              idioma: "V",
-            });
-            if (cancelled) return;
-            setSession(res.session);
-            setDashboard(res.dashboard);
-            return;
-          } catch (err) {
-            if (!cancelled) {
-              setError(err instanceof Error ? err.message : "No s'ha pogut restaurar la sessió");
-            }
-          }
-        }
+        if (status.hasStoredCredentials) setShowLive(true);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Error de sessió");
       } finally {
@@ -167,7 +133,7 @@ export default function App() {
         masterPassword: remember && protectWithMaster ? masterPassword : undefined,
         idioma: "V",
       });
-      if (remember) saveRememberedLogin({ username, password, remember: true });
+      if (remember) saveRememberedLogin({ username, keepPassword: false });
       else clearRememberedLogin();
       setSession(res.session);
       setDashboard(res.dashboard);
@@ -178,11 +144,14 @@ export default function App() {
     }
   }
 
-  async function doUnlock(master?: string) {
+  async function doUnlock(opts?: { master?: string; password?: string }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await unlock(master);
+      const res = await unlock({
+        masterPassword: opts?.master,
+        password: opts?.password,
+      });
       setSession(res.session);
       setDashboard(res.dashboard);
     } catch (err) {
@@ -194,7 +163,11 @@ export default function App() {
 
   async function onUnlock(e: FormEvent) {
     e.preventDefault();
-    await doUnlock(unlockPassword || undefined);
+    if (session?.vaultMode === "master") {
+      await doUnlock({ master: unlockPassword });
+      return;
+    }
+    await doUnlock({ password: unlockPassword || password });
   }
 
   async function onForget() {
@@ -217,11 +190,25 @@ export default function App() {
     }
   }
 
+  async function onLogout() {
+    setBusy(true);
+    try {
+      const res = await logout();
+      setSession(res.session);
+      setDashboard(null);
+      setStructureJson(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error en tancar sessió");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function refresh() {
     setBusy(true);
     setError(null);
     try {
-      setDashboard(await fetchDashboard());
+      setDashboard(await fetchDashboard(true));
       setSession(await fetchSession());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error en refrescar");
@@ -264,18 +251,25 @@ export default function App() {
     const hasDeviceVault = Boolean(
       session?.hasStoredCredentials && session.vaultMode === "device",
     );
+    const allowMock = session?.allowMock !== false;
     return (
       <main className="gate">
         <div className="gate-inner">
           <Brand />
           <p className="lede">
-            La mateixa Web Família oficial, pensada per al mòbil: menys fricció i millor
-            lectura.
+            La mateixa Web Família oficial, pensada per al mòbil. Cal iniciar sessió en
+            aquest navegador (el servidor pot scrapear amb WF_USER/WF_PASS, però no obre
+            dades sense el teu login).
           </p>
+          {session?.scrapeReady && (
+            <p className="hint">El servidor ja té un scrape en viu preparat. Entra per veure&apos;l.</p>
+          )}
           <div className="gate-actions">
-            <button type="button" className="secondary" disabled={busy} onClick={onMock}>
-              Provar amb dades d&apos;exemple
-            </button>
+            {allowMock && (
+              <button type="button" className="secondary" disabled={busy} onClick={onMock}>
+                Provar amb dades d&apos;exemple
+              </button>
+            )}
             <button
               type="button"
               className="ghost"
@@ -311,20 +305,28 @@ export default function App() {
             </form>
           )}
           {hasDeviceVault && !needsMaster && (
-            <div className="panel">
+            <form className="panel" onSubmit={onUnlock}>
               <p className="hint">
-                Hi ha un compte desat ({session?.username}). Si l&apos;auto-entrada ha fallat,
-                pots reintentar o esborrar-lo.
+                Compte desat ({session?.username}). Introdueix la contrasenya de Web Família
+                per obrir la sessió en aquest navegador.
               </p>
+              <label>
+                Contrasenya Web Família
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={unlockPassword}
+                  onChange={(e) => setUnlockPassword(e.target.value)}
+                  required
+                />
+              </label>
               <div className="gate-actions">
-                <button type="button" disabled={busy} onClick={() => doUnlock()}>
-                  Tornar a entrar
-                </button>
+                <button type="submit" disabled={busy}>Obrir sessió</button>
                 <button type="button" className="ghost" disabled={busy} onClick={onForget}>
                   Oblidar aquest dispositiu
                 </button>
               </div>
-            </div>
+            </form>
           )}
           {showLive && (
             <form className="panel" onSubmit={onLogin}>
@@ -355,7 +357,7 @@ export default function App() {
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
                 />
-                Recordar en aquest dispositiu
+                Recordar usuari en aquest navegador
               </label>
               {remember && (
                 <label className="check">
@@ -364,7 +366,7 @@ export default function App() {
                     checked={protectWithMaster}
                     onChange={(e) => setProtectWithMaster(e.target.checked)}
                   />
-                  Protegir amb contrasenya mestra (opcional)
+                  Protegir vault amb contrasenya mestra (opcional)
                 </label>
               )}
               {remember && protectWithMaster && (
@@ -381,12 +383,13 @@ export default function App() {
                 </label>
               )}
               <p className="hint">
-                Es desa al navegador i, si hi ha <code>DATABASE_URL</code>, també al servidor.
+                La contrasenya no es desa en clar al navegador. El vault del servidor només
+                s&apos;obre amb la teva clau en aquesta sessió.
               </p>
               {session?.storage && !session.storage.persistent && (
                 <p className="error" role="status">
-                  Aquest servidor encara no té Postgres. El recordatori del navegador sí
-                  funcionarà.
+                  Aquest servidor encara no té Postgres. El recordatori d&apos;usuari del
+                  navegador sí funcionarà.
                 </p>
               )}
               <button type="submit" disabled={busy}>
@@ -416,6 +419,7 @@ export default function App() {
   const subjects = forStudent(dashboard.subjects ?? [], sid);
   const schedule = forStudent(dashboard.schedule ?? [], sid);
   const attachments = forStudent(dashboard.attachments ?? [], sid);
+  const menus = forStudentMenus(dashboard.menus ?? [], sid, attachments, notices);
   const scrapeInfo = dashboard.diagnostics?.scrapedStudents?.find((s) => s.id === sid);
 
   return (
@@ -430,14 +434,18 @@ export default function App() {
               {student?.group || student?.course
                 ? ` · ${student.group || student.course}`
                 : ""}
-              {student?.tutorName ? ` · Tutor/a: ${student.tutorName}` : ""}
+              {student?.center ? ` · ${student.center}` : ""}
+            </p>
+            <p className="hint" style={{ margin: 0 }}>
+              {student?.tutorName ? `Tutor/a: ${student.tutorName}` : "Tutor/a: —"}
+              {student?.nia ? ` · NIA ${student.nia}` : ""}
             </p>
             <p className={`status-dot ${dashboard.source}`}>
               <i aria-hidden="true" />
               {dashboard.source === "mock" ? "Exemple" : "En viu"} ·{" "}
               {new Date(dashboard.capturedAt).toLocaleString("ca-ES")}
               {scrapeInfo
-                ? ` · ${scrapeInfo.notices} avisos · ${scrapeInfo.schedule} hores`
+                ? ` · ${scrapeInfo.notices} avisos · ${scrapeInfo.schedule} hores · ${scrapeInfo.absences ?? 0} faltes`
                 : ""}
             </p>
           </div>
@@ -454,6 +462,9 @@ export default function App() {
             title="Rescanejar estructura"
           >
             Admin
+          </button>
+          <button type="button" className="ghost" disabled={busy} onClick={onLogout}>
+            Sortir
           </button>
         </div>
       </header>
@@ -545,24 +556,32 @@ export default function App() {
               </table>
             </div>
           )}
-          {(dashboard.menus?.length ?? 0) > 0 && (
-            <div className="table-stack" style={{ marginTop: "1.25rem" }}>
-              {dashboard.menus!
-                .filter(
-                  (menu) =>
-                    !sid ||
-                    !menu.attachmentId ||
-                    attachments.some((a) => a.id === menu.attachmentId) ||
-                    notices.some((n) => n.attachments?.some((a) => a.id === menu.attachmentId)),
-                )
-                .map((menu) => (
-                <div className="day-block" key={menu.sourceFile + menu.attachmentId}>
+        </Section>
+      )}
+      {tab === "menus" && (
+        <Section title="Menús menjador" count={menus.length}>
+          {menus.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+          {menus.length > 0 && (
+            <div className="table-stack">
+              {menus.map((menu) => (
+                <div className="day-block" key={menu.sourceFile + (menu.attachmentId || "") + (menu.studentId || "")}>
                   <h3>
                     Menú {menu.month}/{menu.year}
                     {menu.centerName ? ` · ${menu.centerName}` : ""}
+                    {menu.studentName ? ` · ${menu.studentName.split(" ")[0]}` : ""}
                   </h3>
-                  <p className="hint">{menu.sourceFile}</p>
-                  {(menu.variants[0]?.days ?? []).slice(0, 10).length > 0 && (
+                  <p className="hint">
+                    {menu.sourceFile}
+                    {menu.attachmentId ? (
+                      <>
+                        {" · "}
+                        <a href={`/api/attachments/${menu.attachmentId}`} target="_blank" rel="noreferrer">
+                          PDF
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                  {(menu.variants[0]?.days ?? []).length > 0 && (
                     <div className="table-scroll">
                       <table className="data-table">
                         <thead>
@@ -576,7 +595,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {menu.variants[0].days.slice(0, 14).map((d) => (
+                          {menu.variants[0].days.slice(0, 31).map((d) => (
                             <tr key={d.date}>
                               <td className="time">{d.date}</td>
                               <td className="cell-soft">{d.weekday}</td>
@@ -800,15 +819,18 @@ export default function App() {
         {showAdmin && (
           <p className="hint">
             El servidor ja descarrega agenda, horaris i assignatures de cada alumne
-            en login / Act. / Rescanejar. Canviar de pestanya només filtra el que ja
-            s&apos;ha scrapejat. El JSON és diagnòstic.
+            en login / Act. / Rescanejar (i amb WF_USER/WF_PASS al arrencar). Canviar
+            de pestanya només filtra. El JSON és diagnòstic.
           </p>
         )}
         {showAdmin && (dashboard.diagnostics?.scrapedStudents?.length ?? 0) > 0 && (
           <p className="hint">
             Scrapejat:{" "}
             {dashboard.diagnostics!.scrapedStudents!
-              .map((s) => `${s.name.split(" ")[0]} (${s.notices} avisos, ${s.schedule} hores, ${s.subjects} mat.)`)
+              .map(
+                (s) =>
+                  `${s.name.split(" ")[0]} (${s.notices} avisos, ${s.schedule} hores, ${s.absences ?? 0} faltes, ${s.menus ?? 0} menús${s.tutorName ? `, tutor ${s.tutorName}` : ""})`,
+              )
               .join(" · ")}
           </p>
         )}
@@ -823,10 +845,24 @@ export default function App() {
 
 function forStudent<T extends { studentId?: string }>(items: T[], sid?: string | null) {
   if (!sid) return items;
-  const tagged = items.filter((i) => i.studentId === sid);
-  // If scrape still has untagged rows, keep them only when no tagged data exists for this student
-  if (tagged.length) return tagged;
-  return items.filter((i) => !i.studentId);
+  return items.filter((i) => i.studentId === sid);
+}
+
+function forStudentMenus(
+  menus: MenuExtraction[],
+  sid: string | null | undefined,
+  attachments: { id: string; studentId?: string }[],
+  notices: { studentId?: string; attachments?: { id: string }[] }[],
+) {
+  if (!sid) return menus;
+  return menus.filter((menu) => {
+    if (menu.studentId) return menu.studentId === sid;
+    if (menu.attachmentId && attachments.some((a) => a.id === menu.attachmentId)) return true;
+    if (menu.attachmentId && notices.some((n) => n.attachments?.some((a) => a.id === menu.attachmentId))) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function Section({

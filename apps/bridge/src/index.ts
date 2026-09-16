@@ -11,18 +11,25 @@ import {
   forgetCredentials,
   getCaptureHtml,
   getCaptures,
+  getCachedDashboard,
   getDashboard,
   getStatus,
   getStructureReport,
   loginLive,
   rescanLive,
-  tryAutoLogin,
+  startBackgroundScrape,
   unlockAndLogin,
   useMock,
 } from "./session";
 import { getStorageInfo } from "./vault";
 import { pdfDiskPath } from "./attachments";
 import type { Attachment } from "@pont/shared";
+import {
+  clearBrowserSession,
+  createBrowserSession,
+  mockAllowed,
+  requireBrowserSession,
+} from "./browser-session";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,21 +70,38 @@ app.get("/api/health", (c) =>
     web: Boolean(webRootAbs),
     webRoot: webRootAbs,
     storage: getStorageInfo(),
+    allowMock: mockAllowed(),
+    envScrape: Boolean(process.env.WF_USER || process.env.PONT_WF_USER),
   }),
 );
 
 app.get("/api/session", async (c) => {
-  const auto = await tryAutoLogin();
-  const session = await getStatus();
-  if (auto && session.authenticated) {
-    return c.json({ ...session, dashboard: auto });
+  const browser = requireBrowserSession(c);
+  const session = await getStatus({
+    browserAuth: Boolean(browser),
+    sessionMode: browser?.mode,
+  });
+  if (browser) {
+    const dash =
+      browser.mode === "mock"
+        ? await getDashboard()
+        : getCachedDashboard() ?? (await getDashboard().catch(() => null));
+    if (dash) return c.json({ ...session, dashboard: dash });
   }
   return c.json(session);
 });
 
 app.post("/api/session/mock", async (c) => {
+  if (!mockAllowed()) {
+    return c.json({ ok: false, error: "Mode exemple desactivat en producció." }, 403);
+  }
   const dashboard = useMock();
-  return c.json({ ok: true, dashboard, session: await getStatus() });
+  createBrowserSession("mock", c);
+  return c.json({
+    ok: true,
+    dashboard,
+    session: await getStatus({ browserAuth: true, sessionMode: "mock" }),
+  });
 });
 
 const loginSchema = z.object({
@@ -111,7 +135,12 @@ app.post("/api/session/login", async (c) => {
       );
     }
     const dashboard = await loginLive({ ...body, masterPassword });
-    return c.json({ ok: true, dashboard, session: await getStatus() });
+    createBrowserSession("live", c);
+    return c.json({
+      ok: true,
+      dashboard,
+      session: await getStatus({ browserAuth: true, sessionMode: "live" }),
+    });
   } catch (error) {
     return c.json({ ok: false, error: errorMessage(error) }, 400);
   }
@@ -119,13 +148,22 @@ app.post("/api/session/login", async (c) => {
 
 const unlockSchema = z.object({
   masterPassword: z.string().min(8).optional(),
+  password: z.string().min(1).optional(),
 });
 
 app.post("/api/session/unlock", async (c) => {
   try {
     const body = unlockSchema.parse(await c.req.json().catch(() => ({})));
-    const dashboard = await unlockAndLogin(body.masterPassword);
-    return c.json({ ok: true, dashboard, session: await getStatus() });
+    const dashboard = await unlockAndLogin({
+      masterPassword: body.masterPassword,
+      password: body.password,
+    });
+    createBrowserSession("live", c);
+    return c.json({
+      ok: true,
+      dashboard,
+      session: await getStatus({ browserAuth: true, sessionMode: "live" }),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No s'ha pogut desbloquejar";
     return c.json({ ok: false, error: message }, 400);
@@ -133,37 +171,56 @@ app.post("/api/session/unlock", async (c) => {
 });
 
 app.post("/api/session/forget", async (c) => {
+  clearBrowserSession(c);
   await forgetCredentials();
-  return c.json({ ok: true, session: await getStatus() });
+  return c.json({ ok: true, session: await getStatus({ browserAuth: false }) });
+});
+
+app.post("/api/session/logout", async (c) => {
+  clearBrowserSession(c);
+  return c.json({ ok: true, session: await getStatus({ browserAuth: false }) });
 });
 
 app.get("/api/dashboard", async (c) => {
+  const browser = requireBrowserSession(c);
+  if (!browser) return c.json({ ok: false, error: "Cal iniciar sessió." }, 401);
   try {
-    return c.json(await getDashboard());
+    const refresh = c.req.query("refresh") === "1";
+    return c.json(await getDashboard({ refresh }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error al dashboard";
     return c.json({ ok: false, error: message }, 400);
   }
 });
 
-app.get("/api/debug/captures", (c) => c.json(getCaptures()));
+app.get("/api/debug/captures", (c) => {
+  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  return c.json(getCaptures());
+});
 
 app.get("/api/debug/captures/:key", (c) => {
+  if (!requireBrowserSession(c)) return c.text("Unauthorized", 401);
   const html = getCaptureHtml(c.req.param("key"));
   if (!html) return c.text("Not found", 404);
   return c.html(html);
 });
 
 app.get("/api/admin/structure", (c) => {
+  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
   const structure = getStructureReport();
   if (!structure) return c.json({ ok: false, error: "Encara no hi ha estructura. Fes login o Rescanejar." }, 404);
   return c.json({ ok: true, structure, captures: getCaptures() });
 });
 
 app.post("/api/admin/scrape", async (c) => {
+  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
   try {
     const result = await rescanLive();
-    return c.json({ ok: true, ...result, session: await getStatus() });
+    return c.json({
+      ok: true,
+      ...result,
+      session: await getStatus({ browserAuth: true, sessionMode: "live" }),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error de scrape";
     return c.json({ ok: false, error: message }, 400);
@@ -171,8 +228,9 @@ app.post("/api/admin/scrape", async (c) => {
 });
 
 app.get("/api/attachments/:id", async (c) => {
+  if (!requireBrowserSession(c)) return c.text("Unauthorized", 401);
   const id = c.req.param("id");
-  const dash = await getDashboard().catch(() => null);
+  const dash = getCachedDashboard() ?? (await getDashboard().catch(() => null));
   const att = dash?.attachments?.find((a: Attachment) => a.id === id);
   if (!att) return c.text("Not found", 404);
   const disk = pdfDiskPath(att);
@@ -199,7 +257,7 @@ if (webRootAbs && webRootRel) {
     if (c.req.path.startsWith("/api/")) return next();
     return c.html(
       `<!doctype html><html lang="ca"><body style="font-family:system-ui;padding:2rem">
-        <h1>Pont</h1>
+        <h1>WebFamilia</h1>
         <p>La webapp no s'ha construït en aquest deploy.</p>
         <p>Revisa els logs de build a Railway: ha de existir <code>apps/bridge/public/index.html</code>.</p>
         <p><a href="/api/health">/api/health</a></p>
@@ -210,6 +268,7 @@ if (webRootAbs && webRootRel) {
 }
 
 console.log(
-  `WebFamilia listening on 0.0.0.0:${port} · web=${webRootAbs ?? "MISSING"}`,
+  `WebFamilia listening on 0.0.0.0:${port} · web=${webRootAbs ?? "MISSING"} · mock=${mockAllowed()}`,
 );
+startBackgroundScrape();
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });

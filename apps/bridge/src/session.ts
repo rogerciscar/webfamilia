@@ -27,6 +27,7 @@ import {
 import { analyzePages, type StructureReport } from "./structure";
 import { storePdf } from "./attachments";
 import { extractMenuFromPdf } from "./menu-pdf";
+import { mockAllowed, passwordsMatch } from "./browser-session";
 import * as cheerio from "cheerio";
 
 const BOOT_PATHS = [
@@ -52,18 +53,36 @@ const state: RuntimeState = {
   structure: null,
 };
 
-export async function getStatus(): Promise<SessionStatus> {
+export async function getStatus(opts?: {
+  browserAuth?: boolean;
+  sessionMode?: "mock" | "live";
+}): Promise<SessionStatus> {
   const meta = await peekVaultMeta();
   const storage = getStorageInfo();
+  const browserAuth = Boolean(opts?.browserAuth);
+  const wfLive = state.mode === "live" && Boolean(state.client?.isAuthenticated());
+  const mode =
+    browserAuth && opts?.sessionMode === "mock"
+      ? "mock"
+      : browserAuth && wfLive
+        ? "live"
+        : browserAuth && state.lastDashboard?.source === "mock"
+          ? "mock"
+          : wfLive
+            ? "live"
+            : "mock";
   return {
-    authenticated: state.mode === "live" && Boolean(state.client?.isAuthenticated()),
-    mode: state.mode,
+    authenticated: browserAuth,
+    mode: browserAuth ? mode : "mock",
     username: state.client?.username ?? meta?.username,
     hasStoredCredentials: await vaultExists(),
     vaultMode: meta?.mode,
     lastLoginAt: state.lastLoginAt ?? meta?.updatedAt,
     error: state.lastError,
     storage,
+    allowMock: mockAllowed(),
+    scrapeReady: Boolean(state.lastDashboard && state.lastDashboard.source === "live"),
+    wfConnected: wfLive,
   };
 }
 
@@ -144,13 +163,30 @@ export async function loginLive(input: {
   }
 }
 
-export async function unlockAndLogin(masterPassword?: string) {
+export async function unlockAndLogin(input: {
+  masterPassword?: string;
+  password?: string;
+}) {
   const meta = await peekVaultMeta();
   if (!meta) throw new Error("No hi ha credencials desades.");
-  if (meta.mode === "master" && !masterPassword) {
-    throw new Error("Cal la contrasenya mestra per desbloquejar.");
+  if (meta.mode === "master") {
+    if (!input.masterPassword) {
+      throw new Error("Cal la contrasenya mestra per desbloquejar.");
+    }
+    const creds = await loadCredentials(input.masterPassword);
+    return loginLive({
+      username: creds.username,
+      password: creds.password,
+      remember: false,
+    });
   }
-  const creds = await loadCredentials(masterPassword);
+  // device vault: require Web Família password (never unlock anonymously)
+  const creds = await loadCredentials();
+  if (!input.password || !passwordsMatch(input.password, creds.password)) {
+    throw new Error(
+      "Cal la contrasenya de Web Família per obrir la sessió en aquest navegador.",
+    );
+  }
   return loginLive({
     username: creds.username,
     password: creds.password,
@@ -158,25 +194,58 @@ export async function unlockAndLogin(masterPassword?: string) {
   });
 }
 
-/** Auto-login when vault is device-bound. Safe no-op otherwise. */
+/** @deprecated anonymous auto-login removed for security */
 export async function tryAutoLogin(): Promise<Dashboard | null> {
-  if (state.client?.isAuthenticated()) {
-    return state.lastDashboard ?? (await getDashboard());
+  return null;
+}
+
+/** Server-side scrape using Railway WF_USER / WF_PASS (no browser session). */
+export async function tryEnvLogin(): Promise<Dashboard | null> {
+  const username = (process.env.WF_USER || process.env.PONT_WF_USER || "").trim();
+  const password = process.env.WF_PASS || process.env.PONT_WF_PASS || "";
+  if (!username || !password) return null;
+  if (state.client?.isAuthenticated() && state.client.username === username.toUpperCase()) {
+    return state.lastDashboard ?? (await buildDashboard(state.client));
   }
-  if (state.autoLoginPromise) return state.autoLoginPromise;
-  state.autoLoginPromise = (async () => {
-    try {
-      const meta = await peekVaultMeta();
-      if (!meta || meta.mode !== "device") return null;
-      return await unlockAndLogin();
-    } catch (error) {
-      state.lastError = error instanceof Error ? error.message : "Auto-login fallit";
-      return null;
-    } finally {
-      state.autoLoginPromise = undefined;
-    }
-  })();
-  return state.autoLoginPromise;
+  try {
+    return await loginLive({
+      username,
+      password,
+      remember: false,
+      idioma: "V",
+    });
+  } catch (error) {
+    state.lastError = error instanceof Error ? error.message : "WF_USER login fallit";
+    console.error("[webfamilia] env login failed:", state.lastError);
+    return null;
+  }
+}
+
+let scrapeTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startBackgroundScrape() {
+  const minutes = Number(process.env.PONT_SCRAPE_MINUTES || 45);
+  void tryEnvLogin().then((dash) => {
+    if (dash) console.log(`[webfamilia] env scrape ok · students=${dash.students.length}`);
+  });
+  if (scrapeTimer || !Number.isFinite(minutes) || minutes <= 0) return;
+  scrapeTimer = setInterval(() => {
+    void (async () => {
+      try {
+        if (state.client?.isAuthenticated()) {
+          await buildDashboard(state.client);
+          console.log("[webfamilia] periodic rescan ok");
+          return;
+        }
+        await tryEnvLogin();
+      } catch (err) {
+        console.error("[webfamilia] periodic scrape failed", err);
+      }
+    })();
+  }, minutes * 60 * 1000);
+  if (typeof scrapeTimer === "object" && scrapeTimer && "unref" in scrapeTimer) {
+    scrapeTimer.unref?.();
+  }
 }
 
 export async function forgetCredentials() {
@@ -190,11 +259,18 @@ export async function forgetCredentials() {
   state.structure = null;
 }
 
-export async function getDashboard(): Promise<Dashboard> {
+export async function getDashboard(opts?: { refresh?: boolean }): Promise<Dashboard> {
   if (state.mode === "mock" || !state.client) {
     return state.lastDashboard ?? mockDashboard();
   }
+  if (!opts?.refresh && state.lastDashboard?.source === "live") {
+    return state.lastDashboard;
+  }
   return buildDashboard(state.client);
+}
+
+export function getCachedDashboard() {
+  return state.lastDashboard ?? null;
 }
 
 export function getCaptures() {
@@ -275,7 +351,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   let subjects: Dashboard["subjects"] = [];
   let schedule: Dashboard["schedule"] = [];
 
-  for (const student of students.slice(0, 3)) {
+  for (const student of students.slice(0, 8)) {
     try {
       const datos = await client.get(`alumno_datos_wf?alumno_id=${student.id}`);
       if (!/login_wf/i.test(datos.url)) {
@@ -307,7 +383,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       );
 
   // Scrape EACH student fully on the server (not only the active UI tab)
-  for (const mat of matriculaTargets.slice(0, 6)) {
+  for (const mat of matriculaTargets.slice(0, 8)) {
     const student = students.find((s) => s.id === mat.alumnoId);
     const ctx = { studentId: mat.alumnoId, studentName: student?.name };
     const studentPages: string[] = [];
@@ -339,7 +415,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
         `alumno_materias_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
         `alumno_horarios_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
       ];
-      for (const href of unique(extras).slice(0, 18)) {
+      for (const href of unique(extras).slice(0, 24)) {
         const pageKey = `st_${mat.alumnoId}_${captureKey(href)}`;
         if (!href || pages[pageKey]) continue;
         try {
@@ -401,7 +477,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   }
 
   // Open aviso details and pull PDFs (Agenda → PDF)
-  for (const notice of notices.slice(0, 16)) {
+  for (const notice of notices.slice(0, 28)) {
     if (!notice.detailHref && !notice.hasDetail) continue;
     const detailHref =
       notice.detailHref ||
@@ -411,7 +487,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       if (/login_wf/i.test(detail.url)) continue;
       store(`detail_${notice.studentId || "x"}_${captureKey(detailHref)}`, detail.html);
       const docLinks = parseDocumentLinks(detail.html, detail.url);
-      for (const doc of docLinks.slice(0, 4)) {
+      for (const doc of docLinks.slice(0, 6)) {
         try {
           const file = await client.getBinary(doc.href);
           const isPdf =
@@ -433,12 +509,22 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
           });
           if (seenPdf.has(att.sha256)) {
             notice.attachments = [...(notice.attachments || []), att];
+            // still attach menu tag for this student if shared PDF
+            const existing = menus.find((m) => m.attachmentId === att.id);
+            if (existing && notice.studentId && !existing.studentId) {
+              existing.studentId = notice.studentId;
+              existing.studentName = notice.studentName;
+            }
             continue;
           }
           seenPdf.add(att.sha256);
           attachments.push(att);
           notice.attachments = [...(notice.attachments || []), att];
-          if (att.kind === "menu_menjador" || att.kind === "menu_especial" || /men[uú]/i.test(att.filename + notice.title)) {
+          const looksMenu =
+            att.kind === "menu_menjador" ||
+            att.kind === "menu_especial" ||
+            /men[uú]|menjador|comedor/i.test(att.filename + " " + notice.title + " " + doc.text);
+          if (looksMenu) {
             try {
               const menu = await extractMenuFromPdf(file.buffer, {
                 sourceFile: att.filename,
@@ -446,6 +532,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
               });
               if (menu) {
                 menu.attachmentId = att.id;
+                menu.studentId = notice.studentId;
+                menu.studentName = notice.studentName;
                 menus.push(menu);
               }
             } catch (err) {
@@ -476,6 +564,10 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     notices: notices.filter((n) => n.studentId === s.id).length,
     schedule: schedule.filter((h) => h.studentId === s.id).length,
     subjects: subjects.filter((x) => x.studentId === s.id).length,
+    absences: absences.filter((a) => a.studentId === s.id).length,
+    menus: menus.filter((m) => m.studentId === s.id).length,
+    tutorName: s.tutorName,
+    group: s.group || s.course,
   }));
 
   const diagnostics = {

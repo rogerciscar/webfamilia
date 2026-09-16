@@ -2,7 +2,8 @@ const KEY = "pont.remember.v1";
 
 export type RememberedLogin = {
   username: string;
-  password: string;
+  /** Optional; prefer empty — password should be typed each browser unless user opts in */
+  password?: string;
   remember: boolean;
 };
 
@@ -11,10 +12,10 @@ export function loadRememberedLogin(): RememberedLogin | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as RememberedLogin;
-    if (!data?.username || !data?.password) return null;
+    if (!data?.username) return null;
     return {
       username: String(data.username),
-      password: String(data.password),
+      password: data.password ? String(data.password) : undefined,
       remember: data.remember !== false,
     };
   } catch {
@@ -22,12 +23,16 @@ export function loadRememberedLogin(): RememberedLogin | null {
   }
 }
 
-export function saveRememberedLogin(data: RememberedLogin) {
+export function saveRememberedLogin(data: {
+  username: string;
+  password?: string;
+  keepPassword?: boolean;
+}) {
   localStorage.setItem(
     KEY,
     JSON.stringify({
       username: data.username,
-      password: data.password,
+      password: data.keepPassword ? data.password || "" : "",
       remember: true,
     }),
   );

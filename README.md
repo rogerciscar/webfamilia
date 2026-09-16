@@ -2,10 +2,10 @@
 
 Web Família (GVA / ITACA) funciona, pero la UI es hostil. **WebFamilia** es una capa local:
 
-1. inicia sesión en `familia.edu.gva.es` con tu usuario oficial
-2. reinterpreta el HTML en JSON limpio
-3. te sirve una webapp clara y usable
-4. recuerda tu login en este dispositivo: por defecto guarda NIF/contraseña **cifrados en disco** y vuelve a entrar solo al abrir la app
+1. el **servidor** inicia sesión en `familia.edu.gva.es` (login en la app o `WF_USER`/`WF_PASS`)
+2. scrapea **cada alumno** (agenda, horarios, materias, faltes, PDFs/menús)
+3. te sirve una webapp clara; al cambiar de hijo/a filtra **toda** la info
+4. cada navegador debe **iniciar sesión** (cookie httpOnly); ya no hay auto-entrada anónima
 
 No es un servicio oficial ni está afiliado a la Generalitat Valenciana. Uso personal.
 
@@ -19,86 +19,49 @@ npm run dev
 - Frontend: http://localhost:5173
 - Bridge API: http://localhost:8787
 
-En la pantalla inicial puedes:
+## Variables Railway (recomendadas)
 
-- **Provar amb dades d'exemple** — UI sin credenciales
-- **Entrar amb el meu usuari** — login real contra Web Família
+| Variable | Uso |
+|---|---|
+| `DATABASE_URL` | Vault persistente (Postgres) |
+| `WF_USER` / `WF_PASS` | Login automático del bridge al arrancar + rescrape periódico |
+| `PONT_SCRAPE_MINUTES` | Minutos entre rescrapes (default `45`; `0` = solo boot) |
+| `PONT_ALLOW_MOCK` | `0` en prod (default si Railway); `1` para permitir ejemplo |
+| `PONT_VAULT_SECRET` | Secreto de cifrado del vault (si no, se deriva de `DATABASE_URL`) |
+| `PONT_SESSION_DAYS` | Duración cookie de sesión del navegador (default 14) |
+
+Con `WF_USER`/`WF_PASS` el servidor scrapea solo; **ver** los datos sigue exigiendo login en ese navegador.
 
 ## Deploy a Railway
 
-**Git sí sube a Railway** (se crean deployments), pero los últimos builds estaban en **failure**. Por eso seguías viendo la página vieja de solo API.
+1. Proyecto → servicio → branch `main` (o merge del PR)
+2. Variables: al menos `DATABASE_URL`, y opcionalmente `WF_USER`/`WF_PASS`
+3. Redeploy → `/api/health` con `"web": true`
+4. Entra con NIF/contraseña → **Admin → Rescanejar** la primera vez
 
-1. Abre el proyecto: https://railway.com/project/8ec7ac83-910c-46f7-b325-e5bc0105bbb9
-2. En el servicio → **Deployments**: mira el build rojo y los logs (ahí está el error real)
-3. Settings importantes:
-   - **Root Directory**: vacío / `/` (no `apps/bridge`)
-   - **Config as Code**: activado (usa `railway.toml` + `Dockerfile`)
-   - Branch: `main`
-4. Fuerza **Redeploy** / Command Palette → **Deploy Latest Commit**
-5. Cuando esté verde, `/api/health` debe devolver `"web": true`
+## Seguridad
 
-(Opcional) Volume en `/data` + `PONT_DATA_DIR=/data` para recordar login.
+- Cookie de sesión httpOnly tras login/unlock (no se abre desde otro terminal sin contraseña)
+- Vault “device” ya **no** desbloquea sin la contraseña de Web Família
+- Mock desactivado en Railway salvo `PONT_ALLOW_MOCK=1`
+- Endpoints `/api/dashboard`, admin, attachments y debug exigen sesión
+- El navegador solo recuerda el **usuario** (no la contraseña en claro)
 
 ## Cómo funciona
 
 ```
-[Pont web] → [Pont bridge] → POST login → familia.edu.gva.es
-                   ↓
-            cookie de sesión + scrape HTML
-                   ↓
-            parsers (cheerio) → Dashboard JSON
+[Web] ──login──► [Bridge] ──WF cookies──► familia.edu.gva.es
+                     │
+                     ├── scrape cada alumno_*_wf
+                     ├── PDFs agenda → menús (pdftotext)
+                     └── Dashboard JSON etiquetado por studentId
 ```
-
-Tras el login, el bridge:
-
-- entra en `listar_alumnos_wf` (home real de Web Família 2.0)
-- sigue `alumno_matricula_wf` y pestañas `alumno_avisos_wf` / `alumno_horarios_wf` / …
-- guarda capturas HTML en memoria (`/api/debug/captures`)
-- parsea markup real (`imc-listado-agenda`, `imc-horarios`, `imc-materias-tabla`, …)
-
-Si el HTML real no encaja, abre `/api/debug/captures/:key` y afinamos el parser.
-
-## Recordar login
-
-Hay **dos capas**:
-
-1. **Navegador (localStorage)** — guarda NIF/contraseña en este dispositivo y reentra solo al abrir la web.
-2. **Servidor** — vault cifrado en **Postgres** (`DATABASE_URL`) o en disco/volumen.
-
-### Railway (importante)
-
-Sin base de datos ni volumen, Railway **borra el disco en cada deploy**.
-
-En el proyecto Railway:
-
-1. **New → Database → PostgreSQL**
-2. En el servicio web, variable:
-   - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
-3. Redeploy
-
-Con eso basta (la clave de cifrado se deriva de `DATABASE_URL`).
-
-Comprueba `/api/health`: `"storage":{"backend":"postgres","persistent":true,...}`.
-
-## Seguridad
-
-- Credenciales solo en `apps/bridge/.data/` (gitignored), cifradas
-- Clave de dispositivo con permisos 0600; sin cloud, sin analytics, sin terceros
-- Si usas contraseña mestra, no la pierdas: sin ella no se pueden leer las credenciales
-- La GVA puede cambiar el portal; el puente puede romperse y hay que retocarlo
 
 ## Estado
 
-MVP funcional:
-
-- [x] auth bridge + vault cifrado
-- [x] recordar login en el dispositivo (auto-entrada)
-- [x] dashboard mock
-- [x] parsers genéricos + discovery de rutas
-- [ ] parsers ajustados a HTML real de tu centro (necesita un login de prueba)
-- [ ] notificaciones / polling
+- [x] scrape por alumno + filtro UI
+- [x] sesión por navegador + scrape server con env
+- [x] menús en pestaña propia
+- [x] parsers faltes ampliados
+- [ ] notificaciones push
 - [ ] envío de mensajes al profesorado
-
-## Disclaimer
-
-Herramienta personal de accesibilidad/UX. Respeta las condiciones de uso del portal oficial y la privacidad de los datos escolares.

@@ -125,6 +125,8 @@ export type MenuExtraction = {
   month: number;
   variants: { name: string; days: MenuDay[] }[];
   attachmentId?: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type Dashboard = {
@@ -146,7 +148,17 @@ export type Dashboard = {
     pages: { key: string; bytes: number; title?: string; links?: number }[];
     navLinks: { href: string; text: string }[];
     scrapeErrors?: string[];
-    scrapedStudents?: { id: string; name: string; notices: number; schedule: number; subjects: number }[];
+    scrapedStudents?: {
+      id: string;
+      name: string;
+      notices: number;
+      schedule: number;
+      subjects: number;
+      absences?: number;
+      menus?: number;
+      tutorName?: string;
+      group?: string;
+    }[];
     note?: string;
   };
 };
@@ -160,6 +172,9 @@ export type SessionStatus = {
   lastLoginAt?: string;
   error?: string;
   dashboard?: Dashboard;
+  allowMock?: boolean;
+  scrapeReady?: boolean;
+  wfConnected?: boolean;
   storage?: {
     backend: "postgres" | "file" | "none";
     persistent: boolean;
@@ -170,6 +185,7 @@ export type SessionStatus = {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
+    credentials: "include",
     headers: {
       "content-type": "application/json",
       ...(init?.headers ?? {}),
@@ -212,10 +228,10 @@ export function login(body: {
   });
 }
 
-export function unlock(masterPassword?: string) {
+export function unlock(opts?: { masterPassword?: string; password?: string }) {
   return request<{ dashboard: Dashboard; session: SessionStatus }>("/api/session/unlock", {
     method: "POST",
-    body: JSON.stringify({ masterPassword }),
+    body: JSON.stringify(opts ?? {}),
   });
 }
 
@@ -226,8 +242,15 @@ export function forget() {
   });
 }
 
-export function fetchDashboard() {
-  return request<Dashboard>("/api/dashboard");
+export function logout() {
+  return request<{ session: SessionStatus }>("/api/session/logout", {
+    method: "POST",
+    body: "{}",
+  });
+}
+
+export function fetchDashboard(refresh = false) {
+  return request<Dashboard>(`/api/dashboard${refresh ? "?refresh=1" : ""}`);
 }
 
 export function adminScrape() {

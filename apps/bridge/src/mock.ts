@@ -258,13 +258,72 @@ export function mockDashboard(): Dashboard {
       },
     ],
     attachments: [],
-    menus: [],
+    menus: [
+      {
+        sourceFile: "menu_exemple_mar.pdf",
+        centerName: "IES Exemple",
+        year: 2026,
+        month: 3,
+        attachmentId: undefined,
+        studentId: "1",
+        studentName: "Mar Serra i Puig",
+        variants: [
+          {
+            name: "General",
+            days: [
+              {
+                date: "2026-03-10",
+                dayOfMonth: 10,
+                weekday: "Dimarts",
+                courses: ["Llenties", "Pollastre al forn", "Amanida"],
+                saladCode: "A",
+                dessert: "Iogurt",
+                nutrition: { kcal: 720 },
+              },
+              {
+                date: "2026-03-11",
+                dayOfMonth: 11,
+                weekday: "Dimecres",
+                courses: ["Sopa de verdura", "Truita", "Pa"],
+                saladCode: "B",
+                dessert: "Poma",
+                nutrition: { kcal: 680 },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        sourceFile: "menu_exemple_nil.pdf",
+        centerName: "CEIP Exemple",
+        year: 2026,
+        month: 3,
+        studentId: "2",
+        studentName: "Nil Serra i Puig",
+        variants: [
+          {
+            name: "General",
+            days: [
+              {
+                date: "2026-03-10",
+                dayOfMonth: 10,
+                weekday: "Dimarts",
+                courses: ["Arròs", "Peix", "Amanida"],
+                saladCode: "C",
+                dessert: "Fruita",
+                nutrition: { kcal: 650 },
+              },
+            ],
+          },
+        ],
+      },
+    ],
     diagnostics: {
       pages: [],
       navLinks: [],
       scrapedStudents: [
-        { id: "1", name: "Mar Serra i Puig", notices: 2, schedule: 3, subjects: 2 },
-        { id: "2", name: "Nil Serra i Puig", notices: 1, schedule: 3, subjects: 1 },
+        { id: "1", name: "Mar Serra i Puig", notices: 2, schedule: 3, subjects: 2, absences: 2, menus: 1, tutorName: "Anna Tutor", group: "3r ESO B" },
+        { id: "2", name: "Nil Serra i Puig", notices: 1, schedule: 3, subjects: 1, absences: 1, menus: 1, tutorName: "Joan Tutor", group: "5é A" },
       ],
     },
   };

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  parseAbsences,
   parseActivities,
   parseMatriculaLinks,
   parseNotices,
@@ -9,6 +10,7 @@ import {
   parseSectionTargets,
   parseStudents,
   parseSubjects,
+  enrichStudent,
 } from "../src/parsers.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +47,14 @@ if (sections.length < 5) throw new Error(`expected section targets, got ${sectio
 if (!sections.some((s) => s.kind === "horarios")) throw new Error("missing horarios section");
 if (!sections.some((s) => s.kind === "agenda")) throw new Error("missing agenda section");
 
+const enriched = enrichStudent(matricula, students[0]);
+if (!enriched.tutorName?.includes("TUTOR")) throw new Error("expected tutor from matricula");
+
+const assist = readFileSync(path.join(fixtures, "assistencies_anon.html"), "utf8");
+const absences = parseAbsences(assist);
+if (absences.length < 2) throw new Error(`expected absences, got ${absences.length}`);
+if (absences[0].kind !== "retard") throw new Error("expected retard");
+
 console.log("parsers ok", {
   students: students.length,
   notices: noticesHome.length,
@@ -52,4 +62,6 @@ console.log("parsers ok", {
   subjects: subjects.length,
   schedule: schedule.length,
   sections: sections.length,
+  absences: absences.length,
+  tutor: enriched.tutorName,
 });

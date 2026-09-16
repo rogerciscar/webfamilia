@@ -146,6 +146,8 @@ export type MenuExtraction = {
   month: number;
   variants: MenuVariant[];
   attachmentId?: string;
+  studentId?: string;
+  studentName?: string;
 };
 
 export type CaptureInfo = {
@@ -174,7 +176,17 @@ export type Dashboard = {
     pages: CaptureInfo[];
     navLinks: { href: string; text: string }[];
     scrapeErrors?: string[];
-    scrapedStudents?: { id: string; name: string; notices: number; schedule: number; subjects: number }[];
+    scrapedStudents?: {
+      id: string;
+      name: string;
+      notices: number;
+      schedule: number;
+      subjects: number;
+      absences?: number;
+      menus?: number;
+      tutorName?: string;
+      group?: string;
+    }[];
     note?: string;
   };
 };
@@ -187,6 +199,9 @@ export type SessionStatus = {
   vaultMode?: "device" | "master";
   lastLoginAt?: string;
   error?: string;
+  allowMock?: boolean;
+  scrapeReady?: boolean;
+  wfConnected?: boolean;
   storage?: {
     backend: "postgres" | "file" | "none";
     persistent: boolean;
