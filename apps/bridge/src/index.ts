@@ -350,6 +350,8 @@ if (webRootAbs && webRootRel) {
     c.header("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
     c.header("pragma", "no-cache");
     c.header("expires", "0");
+    c.header("surrogate-control", "no-store");
+    c.header("x-webfamilia-build", "0.2.8");
     return c.html(html);
   };
   // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).
