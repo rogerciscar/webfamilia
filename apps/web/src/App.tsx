@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  fetchDashboard,
   fetchSession,
   forget,
   login,
@@ -50,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.3";
+const APP_VERSION = "0.2.4";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -259,19 +258,6 @@ export default function App() {
     }
   }
 
-  async function refresh() {
-    setBusy(true);
-    setError(null);
-    try {
-      setDashboard(await fetchDashboard(true));
-      setSession(await fetchSession());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error en refrescar");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function onPickPhoto(file: File | null) {
     if (!file || !studentId) return;
     setCropFile(file);
@@ -471,7 +457,6 @@ export default function App() {
   const messages = forStudent(dashboard.messages, sid);
   const activities = forStudent(dashboard.activities, sid);
   const subjects = forStudent(dashboard.subjects ?? [], sid);
-  const scrapeInfo = dashboard.diagnostics?.scrapedStudents?.find((s) => s.id === sid);
   const daySlots = schedule
     .filter((s) => normalizeDay(s.day) === scheduleDay)
     .slice()
@@ -532,24 +517,38 @@ export default function App() {
       <div className="sticky-chrome">
       <header className="topbar">
         <div className="topbar-main">
-          <button
-            type="button"
-            className="avatar-btn"
-            disabled={busy || !student}
-            onClick={() => photoInputRef.current?.click()}
-            title="Foto de carnet des de la galeria"
-            aria-label="Pujar foto de carnet"
-          >
-            {student?.photoUrl || student?.hasPhoto ? (
-              <img
-                src={`${student.photoUrl || `/api/students/${student.id}/photo`}?t=${photoTick || dashboard.capturedAt}`}
-                alt=""
-                className="avatar-img"
-              />
-            ) : (
-              <span className="avatar-fallback">{(student?.name || "?").slice(0, 1)}</span>
+          <div className="avatar-wrap">
+            <button
+              type="button"
+              className="avatar-btn"
+              disabled={busy || !student}
+              onClick={() => photoInputRef.current?.click()}
+              title="Foto de carnet des de la galeria"
+              aria-label="Pujar foto de carnet"
+            >
+              {student?.photoUrl || student?.hasPhoto ? (
+                <img
+                  src={`${student.photoUrl || `/api/students/${student.id}/photo`}?t=${photoTick || dashboard.capturedAt}`}
+                  alt=""
+                  className="avatar-img"
+                />
+              ) : (
+                <span className="avatar-fallback">{(student?.name || "?").slice(0, 1)}</span>
+              )}
+            </button>
+            {(student?.photoUrl || student?.hasPhoto) && (
+              <button
+                type="button"
+                className="avatar-clear"
+                disabled={busy}
+                onClick={() => void onClearPhoto()}
+                aria-label="Treure foto"
+                title="Treure foto"
+              >
+                ×
+              </button>
             )}
-          </button>
+          </div>
           <input
             ref={photoInputRef}
             type="file"
@@ -568,30 +567,8 @@ export default function App() {
                 ? ` · ${student.group || student.course}`
                 : ""}
             </p>
-            <p className="hint meta-line">
-              {student?.tutorName ? `Tutor/a: ${student.tutorName}` : "Tutor/a: —"}
-              {student?.nia ? ` · NIA ${student.nia}` : ""}
-            </p>
-            <p className={`status-dot ${dashboard.source}`}>
-              <i aria-hidden="true" />
-              {dashboard.source === "mock" ? "Exemple" : "En viu"} ·{" "}
-              {new Date(dashboard.capturedAt).toLocaleString("ca-ES")}
-              {scrapeInfo
-                ? ` · ${scrapeInfo.notices} avisos · ${scrapeInfo.schedule} hores · ${scrapeInfo.menus ?? 0} menús`
-                : ""}
-            </p>
           </div>
-        </div>
-        <div className="topbar-actions">
-          {(student?.photoUrl || student?.hasPhoto) && (
-            <button type="button" className="ghost" disabled={busy} onClick={() => void onClearPhoto()}>
-              Treure foto
-            </button>
-          )}
-          <button type="button" className="ghost" disabled={busy} onClick={refresh} title="Actualitzar dades">
-            Act.
-          </button>
-          <button type="button" className="ghost" disabled={busy} onClick={onLogout}>
+          <button type="button" className="ghost topbar-exit" disabled={busy} onClick={onLogout}>
             Sortir
           </button>
         </div>
@@ -599,7 +576,6 @@ export default function App() {
       {dashboard.students.length > 1 && (
         <div className="students" role="tablist" aria-label="Alumnes">
           {dashboard.students.map((s) => {
-            const info = dashboard.diagnostics?.scrapedStudents?.find((x) => x.id === s.id);
             const photoSrc =
               s.photoUrl || s.hasPhoto
                 ? `${s.photoUrl || `/api/students/${s.id}/photo`}?t=${photoTick || dashboard.capturedAt}`
@@ -617,7 +593,6 @@ export default function App() {
                 <span className="chip-avatar-fallback">{s.name.slice(0, 1)}</span>
               )}
               {s.name.split(" ")[0]}
-              {info ? ` · ${info.notices}` : ""}
             </button>
             );
           })}
