@@ -66,17 +66,18 @@ Hay **dos capas**:
 
 ### Railway (importante)
 
-Sin base de datos ni volumen, Railway **borra el disco en cada deploy**. Por eso “no recordaba”.
+Sin base de datos ni volumen, Railway **borra el disco en cada deploy**.
 
 En el proyecto Railway:
 
 1. **New → Database → PostgreSQL**
-2. Variables del servicio web:
-   - `DATABASE_URL=${{Postgres.DATABASE_URL}}` (referencia Railway)
-   - `PONT_VAULT_SECRET=` una clave larga aleatoria (mín. 16 chars), fija
+2. En el servicio web, variable:
+   - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
 3. Redeploy
 
-Comprueba `/api/health`: debe mostrar `"storage":{"backend":"postgres","persistent":true,...}`.
+Con eso basta (la clave de cifrado se deriva de `DATABASE_URL`).
+
+Comprueba `/api/health`: `"storage":{"backend":"postgres","persistent":true,...}`.
 
 ## Seguridad
 

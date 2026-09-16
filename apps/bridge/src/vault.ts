@@ -79,7 +79,8 @@ function ensurePg() {
 
 export function getStorageInfo(): StorageInfo {
   const hasVaultSecret = Boolean(
-    process.env.PONT_VAULT_SECRET && process.env.PONT_VAULT_SECRET.length >= 8,
+    (process.env.PONT_VAULT_SECRET && process.env.PONT_VAULT_SECRET.length >= 8) ||
+      (process.env.DATABASE_URL && process.env.DATABASE_URL.length >= 8),
   );
   if (pool) {
     return { backend: "postgres", persistent: true, hasVaultSecret };
@@ -98,11 +99,15 @@ async function ensureDataDir() {
   await mkdir(DATA_DIR, { recursive: true });
 }
 
-/** Stable secret across deploys when PONT_VAULT_SECRET is set. */
+/** Stable secret across deploys: env secret, else DATABASE_URL, else local file key. */
 async function readDeviceKey(): Promise<Buffer> {
   const fromEnv = process.env.PONT_VAULT_SECRET;
   if (fromEnv && fromEnv.length >= 8) {
     return createHash("sha256").update(`pont-device:${fromEnv}`).digest();
+  }
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl && dbUrl.length >= 8) {
+    return createHash("sha256").update(`pont-device-db:${dbUrl}`).digest();
   }
   await ensureDataDir();
   try {
@@ -244,7 +249,7 @@ export async function loadCredentials(masterPassword?: string): Promise<StoredCr
     throw new Error(
       mode === "master"
         ? "Contrasenya mestra incorrecta."
-        : "No s'han pogut llegir les credencials desades. Si ets a Railway, configura PONT_VAULT_SECRET i Postgres.",
+        : "No s'han pogut llegir les credencials desades. Si ets a Railway, connecta Postgres (DATABASE_URL).",
     );
   }
 }

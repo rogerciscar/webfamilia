@@ -352,14 +352,13 @@ export default function App() {
                 </label>
               )}
               <p className="hint">
-                Es desa al navegador (localStorage) i també al servidor si hi ha
-                Postgres / volum. A Railway cal <code>DATABASE_URL</code> +{" "}
-                <code>PONT_VAULT_SECRET</code> perquè sobrevisqui als redeploys.
+                Es desa al navegador i, si hi ha <code>DATABASE_URL</code> (Postgres),
+                també al servidor entre redeploys.
               </p>
               {session?.storage && !session.storage.persistent && (
                 <p className="error" role="status">
-                  Aquest servidor no té persistència encara (sense Postgres/volum).
-                  El recordatori del navegador sí funcionarà en aquest dispositiu.
+                  Aquest servidor encara no té Postgres. El recordatori del navegador
+                  sí funcionarà en aquest dispositiu.
                 </p>
               )}
               <button type="submit" disabled={busy}>
