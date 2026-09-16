@@ -200,16 +200,26 @@ label {
 }
 .topbar-title-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.45rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .topbar h1 {
   font-family: var(--font-display);
-  font-size: clamp(1.25rem, 4.5vw, 1.7rem);
+  font-size: clamp(1.2rem, 4.2vw, 1.55rem);
   margin: 0;
   letter-spacing: -0.03em;
+  flex-shrink: 0;
 }
+.topbar-exit {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  min-height: 34px;
+}
+
 .topbar .student-line {
   margin: 0.1rem 0 0;
   color: var(--ink-soft);
@@ -218,14 +228,6 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.topbar-exit {
-  flex-shrink: 0;
-  padding: 0.45rem 0.7rem;
-  font-size: 0.82rem;
-  align-self: flex-start;
-}
-
-.avatar-wrap {
   position: relative;
   flex-shrink: 0;
 }
@@ -638,8 +640,60 @@ label {
   letter-spacing: -0.02em;
 }
 .section-head span { color: var(--ink-soft); font-size: 0.85rem; }
-.menu-variant {
-  margin-top: 0.75rem;
+.horari-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, white 72%, var(--mist));
+  overflow: hidden;
+}
+.horari-row {
+  display: grid;
+  grid-template-columns: 5.8rem 1fr auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.28rem 0.55rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.8rem;
+  min-height: 0;
+}
+.horari-row:last-child { border-bottom: 0; }
+.horari-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.horari-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ink);
+}
+.horari-subject em {
+  font-style: normal;
+  color: var(--ink-soft);
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+.horari-del {
+  padding: 0.15rem 0.4rem;
+  min-height: 26px;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.horari-del-spacer { width: 1.4rem; }
+.horari-row.slot-custom {
+  background: color-mix(in srgb, var(--coral) 12%, white);
+  box-shadow: inset 3px 0 0 var(--coral);
+}
+.horari-row.slot-menu-lunch {
+  background: color-mix(in srgb, var(--sea) 12%, white);
+  box-shadow: inset 3px 0 0 var(--sea);
+}
+.horari-row.slot-menu-dinner {
+  background: color-mix(in srgb, var(--brand) 10%, white);
+  box-shadow: inset 3px 0 0 var(--brand-deep);
 }
 .menu-variant-title {
   margin: 0 0 0.4rem;

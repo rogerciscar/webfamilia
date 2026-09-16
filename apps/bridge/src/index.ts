@@ -337,6 +337,8 @@ if (webRootAbs && webRootRel) {
   app.get("*", async (c) => {
     if (c.req.path.startsWith("/api/")) return c.text("Not found", 404);
     const html = await readFile(path.join(webRootAbs, "index.html"), "utf8");
+    c.header("cache-control", "no-store, no-cache, must-revalidate");
+    c.header("pragma", "no-cache");
     return c.html(html);
   });
 } else {

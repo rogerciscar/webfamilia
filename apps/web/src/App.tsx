@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.4";
+const APP_VERSION = "0.2.5";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -560,6 +560,9 @@ export default function App() {
             <div className="topbar-title-row">
               <h1>WebFamilia</h1>
               <span className="version-badge quiet">v{session?.version || APP_VERSION}</span>
+              <button type="button" className="ghost topbar-exit" disabled={busy} onClick={onLogout}>
+                Sortir
+              </button>
             </div>
             <p className="student-line">
               {student ? student.name : "Sense alumne"}
@@ -568,9 +571,6 @@ export default function App() {
                 : ""}
             </p>
           </div>
-          <button type="button" className="ghost topbar-exit" disabled={busy} onClick={onLogout}>
-            Sortir
-          </button>
         </div>
       </header>
       {dashboard.students.length > 1 && (
@@ -904,54 +904,43 @@ export default function App() {
           </div>
           {daySlots.length === 0 && <Empty message="Cap classe aquest dia." />}
           {daySlots.length > 0 && (
-            <div className="table-scroll">
-              <table className="data-table dense">
-                <thead>
-                  <tr>
-                    <th scope="col">Hora</th>
-                    <th scope="col">Activitat</th>
-                    <th scope="col" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {daySlots.map((h) => {
-                    const menuKind = "menuKind" in h ? (h as { menuKind?: string }).menuKind : undefined;
-                    const rowClass = h.custom
-                      ? "slot-custom"
-                      : menuKind === "lunch"
-                        ? "slot-menu-lunch"
-                        : menuKind === "dinner"
-                          ? "slot-menu-dinner"
-                          : undefined;
-                    return (
-                    <tr key={h.id} className={rowClass}>
-                      <th className="time" scope="row">
-                        <strong>{h.start || "—"}</strong>
-                        {h.end ? <span>–{h.end}</span> : null}
-                      </th>
-                      <td className="cell-main" title={h.subject}>
-                        {h.subject}
-                        {h.custom ? <span className="pill custom"> Propi</span> : null}
-                        {menuKind === "lunch" ? <span className="pill ok"> Dinar</span> : null}
-                        {menuKind === "dinner" ? <span className="pill warn"> Sopar</span> : null}
-                      </td>
-                      <td>
-                        {h.custom ? (
-                          <button
-                            type="button"
-                            className="ghost"
-                            disabled={busy}
-                            onClick={() => void onDeleteSlot(h.id)}
-                          >
-                            Esborrar
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="horari-list">
+              {daySlots.map((h) => {
+                const menuKind = "menuKind" in h ? (h as { menuKind?: string }).menuKind : undefined;
+                const rowClass = h.custom
+                  ? "horari-row slot-custom"
+                  : menuKind === "lunch"
+                    ? "horari-row slot-menu-lunch"
+                    : menuKind === "dinner"
+                      ? "horari-row slot-menu-dinner"
+                      : "horari-row";
+                return (
+                  <div key={h.id} className={rowClass}>
+                    <span className="horari-time">
+                      {h.start || "—"}
+                      {h.end ? `–${h.end}` : ""}
+                    </span>
+                    <span className="horari-subject" title={h.subject}>
+                      {h.subject}
+                      {h.custom ? <em> · propi</em> : null}
+                      {menuKind === "lunch" ? <em> · dinar</em> : null}
+                      {menuKind === "dinner" ? <em> · sopar</em> : null}
+                    </span>
+                    {h.custom ? (
+                      <button
+                        type="button"
+                        className="ghost horari-del"
+                        disabled={busy}
+                        onClick={() => void onDeleteSlot(h.id)}
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <span className="horari-del-spacer" aria-hidden="true" />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
           <form
