@@ -13,6 +13,7 @@ import { extractNavLinks, WebFamiliaClient } from "./webfamilia";
 import type { Dashboard, SessionStatus } from "@pont/shared";
 import {
   clearCredentials,
+  getStorageInfo,
   loadCredentials,
   peekVaultMeta,
   saveCredentials,
@@ -59,6 +60,7 @@ const state: RuntimeState = {
 
 export async function getStatus(): Promise<SessionStatus> {
   const meta = await peekVaultMeta();
+  const storage = getStorageInfo();
   return {
     authenticated: state.mode === "live" && Boolean(state.client?.isAuthenticated()),
     mode: state.mode,
@@ -67,6 +69,7 @@ export async function getStatus(): Promise<SessionStatus> {
     vaultMode: meta?.mode,
     lastLoginAt: state.lastLoginAt ?? meta?.updatedAt,
     error: state.lastError,
+    storage,
   };
 }
 

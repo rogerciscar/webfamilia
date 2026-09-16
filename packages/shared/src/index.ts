@@ -89,6 +89,11 @@ export type SessionStatus = {
   vaultMode?: "device" | "master";
   lastLoginAt?: string;
   error?: string;
+  storage?: {
+    backend: "postgres" | "file" | "none";
+    persistent: boolean;
+    hasVaultSecret: boolean;
+  };
 };
 
 export type LoginRequest = {

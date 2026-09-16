@@ -59,15 +59,24 @@ Si el HTML real no encaja, abre `/api/debug/captures/:key` y afinamos el parser.
 
 ## Recordar login
 
-Por defecto, al entrar con tu usuario oficial Pont marca **Recordar en este dispositivo**:
+Hay **dos capas**:
 
-- Guarda NIF + contraseña cifrados (AES-256-GCM) con una clave local del equipo (`apps/bridge/.data/device.key`)
-- Al reabrir la app, el bridge desbloquea solo y vuelve a sincronizar con Web Família
-- No hace falta volver a escribir el NIF ni la contraseña cada vez
+1. **Navegador (localStorage)** — guarda NIF/contraseña en este dispositivo y reentra solo al abrir la web.
+2. **Servidor** — vault cifrado en **Postgres** (`DATABASE_URL`) o en disco/volumen.
 
-Opcional: activa **proteger con contraseña mestra** si quieres un PIN/password extra antes de desbloquear.
+### Railway (importante)
 
-Para borrar el login desado: botón **Olvidar este dispositivo** / **Olvidar login**.
+Sin base de datos ni volumen, Railway **borra el disco en cada deploy**. Por eso “no recordaba”.
+
+En el proyecto Railway:
+
+1. **New → Database → PostgreSQL**
+2. Variables del servicio web:
+   - `DATABASE_URL=${{Postgres.DATABASE_URL}}` (referencia Railway)
+   - `PONT_VAULT_SECRET=` una clave larga aleatoria (mín. 16 chars), fija
+3. Redeploy
+
+Comprueba `/api/health`: debe mostrar `"storage":{"backend":"postgres","persistent":true,...}`.
 
 ## Seguridad
 

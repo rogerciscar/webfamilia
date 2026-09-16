@@ -9,6 +9,11 @@ import {
   type Dashboard,
   type SessionStatus,
 } from "./api";
+import {
+  clearRememberedLogin,
+  loadRememberedLogin,
+  saveRememberedLogin,
+} from "./remember";
 
 type Tab = "avisos" | "faltes" | "notes" | "missatges" | "activitats" | "conducta";
 
@@ -41,13 +46,59 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
+        const remembered = loadRememberedLogin();
+        if (remembered) {
+          setUsername(remembered.username);
+          setPassword(remembered.password);
+          setRemember(true);
+          setShowLive(true);
+        }
         const status = await fetchSession();
         if (cancelled) return;
         setSession(status);
         if (status.authenticated && status.dashboard) {
           setDashboard(status.dashboard);
-        } else if (status.hasStoredCredentials && status.vaultMode === "device") {
-          setError(status.error ?? null);
+          return;
+        }
+        if (status.hasStoredCredentials && status.vaultMode === "device") {
+          // server-side auto-login already attempted inside fetchSession
+          if (!status.authenticated && remembered) {
+            try {
+              const res = await login({
+                username: remembered.username,
+                password: remembered.password,
+                remember: true,
+                idioma: "V",
+              });
+              if (cancelled) return;
+              setSession(res.session);
+              setDashboard(res.dashboard);
+              return;
+            } catch (err) {
+              if (!cancelled) {
+                setError(err instanceof Error ? err.message : "No s'ha pogut restaurar la sessió");
+              }
+            }
+          } else {
+            setError(status.error ?? null);
+          }
+        } else if (remembered && !status.authenticated) {
+          try {
+            const res = await login({
+              username: remembered.username,
+              password: remembered.password,
+              remember: true,
+              idioma: "V",
+            });
+            if (cancelled) return;
+            setSession(res.session);
+            setDashboard(res.dashboard);
+            return;
+          } catch (err) {
+            if (!cancelled) {
+              setError(err instanceof Error ? err.message : "No s'ha pogut restaurar la sessió");
+            }
+          }
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Error de sessió");
@@ -91,6 +142,11 @@ export default function App() {
         masterPassword: remember && protectWithMaster ? masterPassword : undefined,
         idioma: "V",
       });
+      if (remember) {
+        saveRememberedLogin({ username, password, remember: true });
+      } else {
+        clearRememberedLogin();
+      }
       setSession(res.session);
       setDashboard(res.dashboard);
     } catch (err) {
@@ -123,6 +179,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
+      clearRememberedLogin();
       const res = await forget();
       setSession(res.session);
       setDashboard(null);
@@ -295,9 +352,16 @@ export default function App() {
                 </label>
               )}
               <p className="hint">
-                Per defecte les credencials es desen xifrades amb una clau local del
-                dispositiu. Només viuen al teu ordinador. Ús personal. No afiliat a la GVA.
+                Es desa al navegador (localStorage) i també al servidor si hi ha
+                Postgres / volum. A Railway cal <code>DATABASE_URL</code> +{" "}
+                <code>PONT_VAULT_SECRET</code> perquè sobrevisqui als redeploys.
               </p>
+              {session?.storage && !session.storage.persistent && (
+                <p className="error" role="status">
+                  Aquest servidor no té persistència encara (sense Postgres/volum).
+                  El recordatori del navegador sí funcionarà en aquest dispositiu.
+                </p>
+              )}
               <button type="submit" disabled={busy}>
                 Connectar amb Web Família
               </button>

@@ -18,6 +18,7 @@ import {
   unlockAndLogin,
   useMock,
 } from "./session";
+import { getStorageInfo } from "./vault";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -57,6 +58,7 @@ app.get("/api/health", (c) =>
     service: "pont-bridge",
     web: Boolean(webRootAbs),
     webRoot: webRootAbs,
+    storage: getStorageInfo(),
   }),
 );
 

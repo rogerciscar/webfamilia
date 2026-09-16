@@ -83,6 +83,11 @@ export type SessionStatus = {
   lastLoginAt?: string;
   error?: string;
   dashboard?: Dashboard;
+  storage?: {
+    backend: "postgres" | "file" | "none";
+    persistent: boolean;
+    hasVaultSecret: boolean;
+  };
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
