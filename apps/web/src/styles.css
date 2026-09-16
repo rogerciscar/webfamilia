@@ -228,6 +228,7 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.avatar-wrap {
   position: relative;
   flex-shrink: 0;
 }
