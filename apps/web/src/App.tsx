@@ -8,6 +8,7 @@ import {
   startMock,
   unlock,
   type Dashboard,
+  type ScheduleSlot,
   type SessionStatus,
 } from "./api";
 import {
@@ -481,36 +482,61 @@ export default function App() {
       {tab === "avisos" && (
         <Section title="Avisos" count={dashboard.notices.length}>
           {dashboard.notices.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          <div className="list">
-            {dashboard.notices.map((n, i) => (
-              <article className="item" key={n.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{n.title}</strong>
-                <div className="meta">
-                  {n.date && <span>{n.date}</span>}
-                  {n.unread && <span className="pill warn">Nou</span>}
-                </div>
-                <p>{n.body}</p>
-              </article>
-            ))}
-          </div>
+          {dashboard.notices.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Títol</th>
+                    <th scope="col">Estat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dashboard.notices.map((n) => (
+                    <tr key={n.id}>
+                      <td className="time">{n.date || "—"}</td>
+                      <td className="cell-main">{n.title}</td>
+                      <td>{n.unread ? <span className="pill warn">Nou</span> : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Section>
       )}
       {tab === "faltes" && (
         <Section title="Faltes i retards" count={dashboard.absences.length}>
           {dashboard.absences.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          <div className="list">
-            {dashboard.absences.map((a, i) => (
-              <article className="item" key={a.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{a.subject || a.kind}</strong>
-                <div className="meta">
-                  <span>{a.date}</span>
-                  <span className={`pill ${a.kind === "retard" ? "warn" : "danger"}`}>
-                    {a.kind}
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
+          {dashboard.absences.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Tipus</th>
+                    <th scope="col">Assignatura</th>
+                    <th scope="col">Justificada</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dashboard.absences.map((a) => (
+                    <tr key={a.id}>
+                      <td className="time">{a.date}</td>
+                      <td>
+                        <span className={`pill ${a.kind === "retard" ? "warn" : "danger"}`}>
+                          {a.kind}
+                        </span>
+                      </td>
+                      <td className="cell-main">{a.subject || "—"}</td>
+                      <td className="cell-soft">{a.justified ? "Sí" : "No"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Section>
       )}
       {tab === "notes" && (
@@ -521,76 +547,147 @@ export default function App() {
           {dashboard.grades.length === 0 && !(dashboard.subjects?.length) && (
             <Empty diagnostics={dashboard.diagnostics} />
           )}
-          <div className="list">
-            {dashboard.grades.map((g, i) => (
-              <article className="item" key={g.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{g.subject}</strong>
-                <div className="meta">
-                  {g.evaluation && <span>{g.evaluation}</span>}
-                  <span className="pill ok">{g.value}</span>
+          <div className="table-stack">
+            {dashboard.grades.length > 0 && (
+              <div className="day-block">
+                <h3>Qualificacions</h3>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Àrea</th>
+                        <th scope="col">Avaluació</th>
+                        <th scope="col">Nota</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboard.grades.map((g) => (
+                        <tr key={g.id}>
+                          <td className="cell-main">{g.subject}</td>
+                          <td className="cell-soft">{g.evaluation || "—"}</td>
+                          <td><span className="pill ok">{g.value}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </article>
-            ))}
-            {(dashboard.subjects ?? []).map((s, i) => (
-              <article className="item" key={s.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{s.subject}</strong>
-                <div className="meta">
-                  {s.teacher && <span>{s.teacher}</span>}
-                  {s.attention && <span>{s.attention}</span>}
+              </div>
+            )}
+            {(dashboard.subjects?.length ?? 0) > 0 && (
+              <div className="day-block">
+                <h3>Assignatures</h3>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Àrea</th>
+                        <th scope="col">Professor/a</th>
+                        <th scope="col">Atenció</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(dashboard.subjects ?? []).map((s) => (
+                        <tr key={s.id}>
+                          <td className="cell-main">{s.subject}</td>
+                          <td className="cell-soft">{s.teacher || "—"}</td>
+                          <td className="cell-soft">{s.attention || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </article>
-            ))}
+              </div>
+            )}
           </div>
         </Section>
       )}
       {tab === "missatges" && (
         <Section title="Missatges" count={dashboard.messages.length}>
           {dashboard.messages.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          <div className="list">
-            {dashboard.messages.map((m, i) => (
-              <article className="item" key={m.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{m.subject}</strong>
-                <div className="meta">
-                  <span>{m.from}</span>
-                  {m.date && <span>{m.date}</span>}
-                </div>
-              </article>
-            ))}
-          </div>
+          {dashboard.messages.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">De</th>
+                    <th scope="col">Assumpte</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dashboard.messages.map((m) => (
+                    <tr key={m.id}>
+                      <td className="time">{m.date || "—"}</td>
+                      <td className="cell-soft">{m.from}</td>
+                      <td className="cell-main">{m.subject}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Section>
       )}
       {tab === "activitats" && (
         <Section title="Activitats" count={dashboard.activities.length}>
           {dashboard.activities.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          <div className="list">
-            {dashboard.activities.map((a, i) => (
-              <article className="item" key={a.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{a.title}</strong>
-                <div className="meta">{a.date && <span>{a.date}</span>}</div>
-              </article>
-            ))}
-          </div>
+          {dashboard.activities.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Activitat</th>
+                    <th scope="col">Lloc</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dashboard.activities.map((a) => (
+                    <tr key={a.id}>
+                      <td className="time">{a.date || "—"}</td>
+                      <td className="cell-main">{a.title}</td>
+                      <td className="cell-soft">{a.place || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Section>
       )}
       {tab === "horaris" && (
         <Section title="Horaris" count={dashboard.schedule?.length ?? 0}>
           {!(dashboard.schedule?.length) && <Empty diagnostics={dashboard.diagnostics} />}
-          <div className="list">
-            {(dashboard.schedule ?? []).map((h, i) => (
-              <article className="item" key={h.id} style={{ animationDelay: `${i * 40}ms` }}>
-                <strong>{h.subject}</strong>
-                <div className="meta">
-                  <span>{h.day}</span>
-                  {(h.start || h.end) && (
-                    <span>
-                      {h.start}
-                      {h.end ? `–${h.end}` : ""}
-                    </span>
-                  )}
+          {(dashboard.schedule?.length ?? 0) > 0 && (
+            <div className="table-stack">
+              {groupScheduleByDay(dashboard.schedule ?? []).map(([day, slots]) => (
+                <div className="day-block" key={day}>
+                  <h3>{day}</h3>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Hora</th>
+                          <th scope="col">Àrea</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {slots.map((h) => (
+                          <tr key={h.id}>
+                            <th className="time" scope="row">
+                              <strong>{h.start || "—"}</strong>
+                              {h.end ? <span> – {h.end}</span> : null}
+                            </th>
+                            <td className="cell-main">{h.subject}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </article>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Section>
       )}
       <div className="admin-panel">
@@ -639,11 +736,25 @@ function Section({
     <section>
       <div className="section-head">
         <h2>{title}</h2>
-        <span>{count} ítems</span>
+        <span>{count}</span>
       </div>
       {children}
     </section>
   );
+}
+
+function groupScheduleByDay(slots: ScheduleSlot[]) {
+  const order: string[] = [];
+  const map = new Map<string, ScheduleSlot[]>();
+  for (const slot of slots) {
+    const day = slot.day || "Horari";
+    if (!map.has(day)) {
+      map.set(day, []);
+      order.push(day);
+    }
+    map.get(day)!.push(slot);
+  }
+  return order.map((day) => [day, map.get(day)!] as const);
 }
 
 function Empty({ diagnostics }: { diagnostics?: Dashboard["diagnostics"] }) {
@@ -663,10 +774,7 @@ function Empty({ diagnostics }: { diagnostics?: Dashboard["diagnostics"] }) {
       {diagnostics?.scrapeErrors?.length ? (
         <p className="hint">Errors: {diagnostics.scrapeErrors.slice(0, 3).join(" · ")}</p>
       ) : null}
-      <p className="hint">
-        Usa <strong>Admin · Rescanejar</strong> o mira{" "}
-        <a href="/api/admin/structure">/api/admin/structure</a>.
-      </p>
+      <p className="hint">Usa el botó Admin · Rescanejar per tornar a capturar.</p>
     </div>
   );
 }

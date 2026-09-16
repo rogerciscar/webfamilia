@@ -288,6 +288,55 @@ label {
   color: var(--ink-soft);
   font-size: 0.88rem;
 }
+.table-stack { display: grid; gap: 1.1rem; }
+.day-block h3 {
+  margin: 0 0 0.45rem;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, white 72%, var(--mist));
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 280px;
+  font-size: 0.92rem;
+}
+.data-table th,
+.data-table td {
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+.data-table thead th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--mist) 70%, white);
+  white-space: nowrap;
+}
+.data-table tbody tr:last-child th,
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table .time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  font-weight: 600;
+  width: 7.5rem;
+}
+.data-table .time strong { color: var(--ink); font-size: 0.95rem; }
+.data-table .time span { font-weight: 500; font-size: 0.85rem; }
+.data-table .cell-main { font-weight: 600; color: var(--ink); }
+.data-table .cell-soft { color: var(--ink-soft); font-weight: 500; }
 .pill {
   display: inline-flex;
   align-items: center;
