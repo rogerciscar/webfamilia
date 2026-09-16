@@ -256,30 +256,34 @@ export function parseAbsences(html: string): Absence[] {
 export function parseActivities(html: string): Activity[] {
   const $ = cheerio.load(html);
   const activities: Activity[] = [];
+  const pushLi = (li: unknown, i: number) => {
+    const el = $(li as never);
+    if (el.find(".imc-sin-datos").length) return;
+    const a = el.find("a").first();
+    const date =
+      clean(el.attr("data-date") || "") ||
+      clean(a.find("span").first().text()) ||
+      extractDateLabel(clean(el.text())) ||
+      undefined;
+    const actTitle = clean(a.find("strong").first().text()) || clean(a.text()) || clean(el.find("strong").first().text());
+    if (!actTitle || /no hi ha|sin actividades/i.test(actTitle)) return;
+    activities.push({
+      id: a.attr("data-id") || el.attr("data-id") || `act-${i}`,
+      title: actTitle,
+      date,
+      dateIso: toIsoDate(date),
+      description: clean(el.text()),
+    });
+  };
   $(".imc-avisos-modulo").each((_, mod) => {
     const title = clean($(mod).find("h2").first().text());
-    if (!/activitat|actividad/i.test(title)) return;
-    if ($(mod).find(".imc-sin-datos").length) return;
-    $(mod)
-      .find("ul.imc-listado-detalle li")
-      .each((i, li) => {
-        const a = $(li).find("a").first();
-        const date =
-          clean($(li).attr("data-date") || "") ||
-          clean(a.find("span").first().text()) ||
-          undefined;
-        const actTitle = clean(a.find("strong").first().text()) || clean(a.text());
-        if (!actTitle) return;
-        activities.push({
-          id: a.attr("data-id") || `act-${i}`,
-          title: actTitle,
-          date,
-          dateIso: toIsoDate(date),
-          description: clean($(li).text()),
-        });
-      });
+    if (title && !/activitat|actividad/i.test(title)) return;
+    if ($(mod).find(".imc-sin-datos").length && !$(mod).find("ul li").length) return;
+    $(mod).find("ul.imc-listado-detalle li, ul.imc-listado-agenda li").each((i, li) => pushLi(li, i));
   });
-  return activities;
+  if (activities.length) return uniqueBy(activities, (a) => `${a.id}:${a.title}:${a.date}`);
+  $("ul.imc-listado-detalle li, ul.imc-listado-agenda li").each((i, li) => pushLi(li, i));
+  return uniqueBy(activities, (a) => `${a.id}:${a.title}:${a.date}`);
 }
 
 export function parseMessages(html: string): Message[] {
@@ -439,7 +443,10 @@ function parseAvisoLi(
     unread: el.hasClass("imc-li-de-nuevo") || a.hasClass("imc-li-de-nuevo"),
     studentId: ctx?.studentId,
     studentName: ctx?.studentName,
-    hasDetail: Boolean(href && /alumno_avisos_wf|agenda_id/i.test(href)),
+    hasDetail: Boolean(
+      (href && /alumno_avisos_wf|agenda_id/i.test(href)) ||
+        (a.attr("data-id") && /^\d+$/.test(a.attr("data-id") || "")),
+    ),
     detailHref: href && /alumno_avisos_wf|agenda_id/i.test(href) ? href : undefined,
   };
 }

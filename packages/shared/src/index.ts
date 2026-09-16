@@ -112,6 +112,7 @@ export type ScheduleSlot = {
   subject: string;
   studentId?: string;
   studentName?: string;
+  custom?: boolean;
 };
 
 export type MenuNutrition = {

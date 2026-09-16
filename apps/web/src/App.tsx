@@ -6,11 +6,12 @@ import {
   forget,
   login,
   logout,
+  removeCustomSlot,
+  saveCustomSlot,
   startMock,
   unlock,
   type Dashboard,
   type MenuExtraction,
-  type ScheduleSlot,
   type SessionStatus,
 } from "./api";
 import {
@@ -19,17 +20,28 @@ import {
   saveRememberedLogin,
 } from "./remember";
 
-type Tab = "avisos" | "menus" | "faltes" | "notes" | "missatges" | "activitats" | "horaris";
+type Tab =
+  | "agenda"
+  | "assistencies"
+  | "activitats"
+  | "comunicacions"
+  | "qualificacions"
+  | "assignatures"
+  | "menus"
+  | "horari";
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "avisos", label: "Avisos", icon: "◎" },
-  { id: "menus", label: "Menús", icon: "◉" },
-  { id: "faltes", label: "Faltes", icon: "◷" },
-  { id: "notes", label: "Notes", icon: "✎" },
-  { id: "missatges", label: "Msgs", icon: "✉" },
-  { id: "activitats", label: "Acts", icon: "⚑" },
-  { id: "horaris", label: "Horari", icon: "▦" },
+const TABS: { id: Tab; label: string }[] = [
+  { id: "agenda", label: "Agenda" },
+  { id: "assistencies", label: "Assist." },
+  { id: "activitats", label: "Activ." },
+  { id: "comunicacions", label: "Comun." },
+  { id: "qualificacions", label: "Notes" },
+  { id: "assignatures", label: "Assign." },
+  { id: "menus", label: "Menús" },
+  { id: "horari", label: "Horari" },
 ];
+
+const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
@@ -51,7 +63,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
 export default function App() {
   const [session, setSession] = useState<SessionStatus | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [tab, setTab] = useState<Tab>("avisos");
+  const [tab, setTab] = useState<Tab>("agenda");
   const [busy, setBusy] = useState(false);
   const [booting, setBooting] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +75,8 @@ export default function App() {
   const [studentId, setStudentId] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [structureJson, setStructureJson] = useState<string | null>(null);
+  const [scheduleDay, setScheduleDay] = useState<string>("Dilluns");
+  const [slotForm, setSlotForm] = useState({ subject: "", start: "18:00", end: "19:00" });
 
   useEffect(() => {
     let cancelled = false;
@@ -366,6 +380,45 @@ export default function App() {
   const attachments = forStudent(dashboard.attachments ?? [], sid);
   const menus = forStudentMenus(dashboard.menus ?? [], sid, attachments, notices);
   const scrapeInfo = dashboard.diagnostics?.scrapedStudents?.find((s) => s.id === sid);
+  const daySlots = schedule
+    .filter((s) => normalizeDay(s.day) === scheduleDay)
+    .slice()
+    .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
+
+  async function onAddSlot() {
+    if (!sid || !slotForm.subject.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await saveCustomSlot({
+        day: scheduleDay,
+        start: slotForm.start,
+        end: slotForm.end,
+        subject: slotForm.subject.trim(),
+        studentId: sid,
+        studentName: student?.name,
+      });
+      setDashboard(res.dashboard);
+      setSlotForm((f) => ({ ...f, subject: "" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No s'ha pogut afegir");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDeleteSlot(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await removeCustomSlot(id);
+      setDashboard(res.dashboard);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No s'ha pogut esborrar");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -451,7 +504,6 @@ export default function App() {
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
           >
-            <span className="icon" aria-hidden="true">{t.icon}</span>
             {t.label}
           </button>
         ))}
@@ -461,18 +513,17 @@ export default function App() {
           {error}
         </p>
       )}
-      {tab === "avisos" && (
-        <Section title="Avisos" count={notices.length}>
-          {notices.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+      {tab === "agenda" && (
+        <Section title="Agenda" count={notices.length}>
+          {notices.length === 0 && <Empty />}
           {notices.length > 0 && (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
                     <th scope="col">Data</th>
-                    <th scope="col">Títol</th>
-                    <th scope="col">Alumne</th>
-                    <th scope="col">PDF</th>
+                    <th scope="col">Avís</th>
+                    <th scope="col">Documents</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -482,18 +533,20 @@ export default function App() {
                       <td className="cell-main">
                         {n.title}
                         {n.unread ? <span className="pill warn"> Nou</span> : null}
+                        {n.body && n.body !== n.title ? (
+                          <div className="hint">{n.body.slice(0, 160)}</div>
+                        ) : null}
                       </td>
-                      <td className="cell-soft">{n.studentName || "—"}</td>
                       <td>
-                        {(n.attachments?.length ?? 0) > 0 ? (
-                          n.attachments!.map((a) => (
-                            <a key={a.id} href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer">
-                              {a.filename}
-                            </a>
-                          ))
-                        ) : (
-                          "—"
-                        )}
+                        {(n.attachments?.length ?? 0) > 0
+                          ? n.attachments!.map((a) => (
+                              <div key={a.id}>
+                                <a href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer">
+                                  {a.filename}
+                                </a>
+                              </div>
+                            ))
+                          : "—"}
                       </td>
                     </tr>
                   ))}
@@ -503,9 +556,150 @@ export default function App() {
           )}
         </Section>
       )}
+      {tab === "assistencies" && (
+        <Section title="Assistències" count={absences.length}>
+          {absences.length === 0 && <Empty />}
+          {absences.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Tipus</th>
+                    <th scope="col">Assignatura</th>
+                    <th scope="col">Justificada</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {absences.map((a) => (
+                    <tr key={a.id}>
+                      <td className="time">{a.date}</td>
+                      <td>
+                        <span className={`pill ${a.kind === "retard" ? "warn" : "danger"}`}>
+                          {a.kind}
+                        </span>
+                      </td>
+                      <td className="cell-main">{a.subject || "—"}</td>
+                      <td className="cell-soft">{a.justified ? "Sí" : "No"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      )}
+      {tab === "activitats" && (
+        <Section title="Activitats" count={activities.length}>
+          {activities.length === 0 && <Empty />}
+          {activities.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">Activitat</th>
+                    <th scope="col">Lloc</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activities.map((a) => (
+                    <tr key={a.id}>
+                      <td className="time">{a.date || "—"}</td>
+                      <td className="cell-main">{a.title}</td>
+                      <td className="cell-soft">{a.place || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      )}
+      {tab === "comunicacions" && (
+        <Section title="Comunicacions" count={messages.length}>
+          {messages.length === 0 && <Empty />}
+          {messages.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Data</th>
+                    <th scope="col">De</th>
+                    <th scope="col">Assumpte</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {messages.map((m) => (
+                    <tr key={m.id}>
+                      <td className="time">{m.date || "—"}</td>
+                      <td className="cell-soft">{m.from}</td>
+                      <td className="cell-main">{m.subject}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      )}
+      {tab === "qualificacions" && (
+        <Section title="Qualificacions" count={grades.length}>
+          {grades.length === 0 && <Empty />}
+          {grades.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Àrea</th>
+                    <th scope="col">Avaluació</th>
+                    <th scope="col">Nota</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grades.map((g) => (
+                    <tr key={g.id}>
+                      <td className="cell-main">{g.subject}</td>
+                      <td className="cell-soft">{g.evaluation || "—"}</td>
+                      <td><span className="pill ok">{g.value}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      )}
+      {tab === "assignatures" && (
+        <Section title="Assignatures" count={subjects.length}>
+          {subjects.length === 0 && <Empty />}
+          {subjects.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Àrea</th>
+                    <th scope="col">Professor/a</th>
+                    <th scope="col">Atenció</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subjects.map((s) => (
+                    <tr key={s.id}>
+                      <td className="cell-main">{s.subject}</td>
+                      <td className="cell-soft">{s.teacher || "—"}</td>
+                      <td className="cell-soft">{s.attention || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      )}
       {tab === "menus" && (
-        <Section title="Menús menjador" count={menus.length}>
-          {menus.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
+        <Section title="Menús" count={menus.length}>
+          {menus.length === 0 && <Empty />}
           {menus.length > 0 && (
             <div className="table-stack">
               {menus.map((menu) => (
@@ -513,7 +707,6 @@ export default function App() {
                   <h3>
                     Menú {menu.month}/{menu.year}
                     {menu.centerName ? ` · ${menu.centerName}` : ""}
-                    {menu.studentName ? ` · ${menu.studentName.split(" ")[0]}` : ""}
                   </h3>
                   <p className="hint">
                     {menu.sourceFile}
@@ -560,188 +753,102 @@ export default function App() {
           )}
         </Section>
       )}
-      {tab === "faltes" && (
-        <Section title="Faltes i retards" count={absences.length}>
-          {absences.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          {absences.length > 0 && (
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Data</th>
-                    <th scope="col">Tipus</th>
-                    <th scope="col">Assignatura</th>
-                    <th scope="col">Justificada</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {absences.map((a) => (
-                    <tr key={a.id}>
-                      <td className="time">{a.date}</td>
-                      <td>
-                        <span className={`pill ${a.kind === "retard" ? "warn" : "danger"}`}>
-                          {a.kind}
-                        </span>
-                      </td>
-                      <td className="cell-main">{a.subject || "—"}</td>
-                      <td className="cell-soft">{a.justified ? "Sí" : "No"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Section>
-      )}
-      {tab === "notes" && (
-        <Section
-          title="Notes i assignatures"
-          count={grades.length + (subjects.length)}
-        >
-          {grades.length === 0 && subjects.length === 0 && (
-            <Empty diagnostics={dashboard.diagnostics} />
-          )}
-          <div className="table-stack">
-            {grades.length > 0 && (
-              <div className="day-block">
-                <h3>Qualificacions</h3>
-                <div className="table-scroll">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Àrea</th>
-                        <th scope="col">Avaluació</th>
-                        <th scope="col">Nota</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grades.map((g) => (
-                        <tr key={g.id}>
-                          <td className="cell-main">{g.subject}</td>
-                          <td className="cell-soft">{g.evaluation || "—"}</td>
-                          <td><span className="pill ok">{g.value}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-            {(subjects.length) > 0 && (
-              <div className="day-block">
-                <h3>Assignatures</h3>
-                <div className="table-scroll">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Àrea</th>
-                        <th scope="col">Professor/a</th>
-                        <th scope="col">Atenció</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(subjects).map((s) => (
-                        <tr key={s.id}>
-                          <td className="cell-main">{s.subject}</td>
-                          <td className="cell-soft">{s.teacher || "—"}</td>
-                          <td className="cell-soft">{s.attention || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+      {tab === "horari" && (
+        <Section title="Horari" count={daySlots.length}>
+          <div className="students" role="tablist" aria-label="Dies">
+            {WEEK_DAYS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={scheduleDay === d ? "active" : ""}
+                onClick={() => setScheduleDay(d)}
+              >
+                {d.slice(0, 3)}
+              </button>
+            ))}
           </div>
-        </Section>
-      )}
-      {tab === "missatges" && (
-        <Section title="Missatges" count={messages.length}>
-          {messages.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          {messages.length > 0 && (
+          {daySlots.length === 0 && <Empty message="Cap classe aquest dia." />}
+          {daySlots.length > 0 && (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th scope="col">Data</th>
-                    <th scope="col">De</th>
-                    <th scope="col">Assumpte</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {messages.map((m) => (
-                    <tr key={m.id}>
-                      <td className="time">{m.date || "—"}</td>
-                      <td className="cell-soft">{m.from}</td>
-                      <td className="cell-main">{m.subject}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Section>
-      )}
-      {tab === "activitats" && (
-        <Section title="Activitats" count={activities.length}>
-          {activities.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
-          {activities.length > 0 && (
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Data</th>
+                    <th scope="col">Hora</th>
                     <th scope="col">Activitat</th>
-                    <th scope="col">Lloc</th>
+                    <th scope="col" />
                   </tr>
                 </thead>
                 <tbody>
-                  {activities.map((a) => (
-                    <tr key={a.id}>
-                      <td className="time">{a.date || "—"}</td>
-                      <td className="cell-main">{a.title}</td>
-                      <td className="cell-soft">{a.place || "—"}</td>
+                  {daySlots.map((h) => (
+                    <tr key={h.id}>
+                      <th className="time" scope="row">
+                        <strong>{h.start || "—"}</strong>
+                        {h.end ? <span> – {h.end}</span> : null}
+                      </th>
+                      <td className="cell-main">
+                        {h.subject}
+                        {h.custom ? <span className="pill ok"> Propi</span> : null}
+                      </td>
+                      <td>
+                        {h.custom ? (
+                          <button
+                            type="button"
+                            className="ghost"
+                            disabled={busy}
+                            onClick={() => void onDeleteSlot(h.id)}
+                          >
+                            Esborrar
+                          </button>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-        </Section>
-      )}
-      {tab === "horaris" && (
-        <Section title="Horaris" count={schedule.length}>
-          {!(schedule.length) && <Empty diagnostics={dashboard.diagnostics} />}
-          {(schedule.length) > 0 && (
-            <div className="table-stack">
-              {groupScheduleByDay(schedule).map(([day, slots]) => (
-                <div className="day-block" key={day}>
-                  <h3>{day}</h3>
-                  <div className="table-scroll">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Hora</th>
-                          <th scope="col">Àrea</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {slots.map((h) => (
-                          <tr key={h.id}>
-                            <th className="time" scope="row">
-                              <strong>{h.start || "—"}</strong>
-                              {h.end ? <span> – {h.end}</span> : null}
-                            </th>
-                            <td className="cell-main">{h.subject}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
+          <form
+            className="panel"
+            style={{ marginTop: "1rem" }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void onAddSlot();
+            }}
+          >
+            <p className="hint">Afegeix un bloc propi ({scheduleDay})</p>
+            <label>
+              Nom
+              <input
+                value={slotForm.subject}
+                onChange={(e) => setSlotForm((f) => ({ ...f, subject: e.target.value }))}
+                placeholder="Piscina"
+                required
+              />
+            </label>
+            <div className="row two">
+              <label>
+                Inici
+                <input
+                  type="time"
+                  value={slotForm.start}
+                  onChange={(e) => setSlotForm((f) => ({ ...f, start: e.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Fi
+                <input
+                  type="time"
+                  value={slotForm.end}
+                  onChange={(e) => setSlotForm((f) => ({ ...f, end: e.target.value }))}
+                  required
+                />
+              </label>
             </div>
-          )}
+            <button type="submit" disabled={busy || !sid}>
+              Afegir
+            </button>
+          </form>
         </Section>
       )}
       <div className="admin-panel">
@@ -754,15 +861,12 @@ export default function App() {
             if (!structureJson && dashboard.source === "live") void onAdminScrape();
           }}
         >
-          {showAdmin ? "Amagar admin" : "Admin · Rescanejar estructura"}
+          {showAdmin ? "Amagar admin" : "Admin · Rescanejar"}
         </button>
         {session?.hasStoredCredentials && (
           <button type="button" className="ghost" disabled={busy} onClick={onForget}>
             Oblidar login
           </button>
-        )}
-        {showAdmin && (
-          <p className="hint">Torna a demanar les dades a Web Família amb la sessió actual.</p>
         )}
         {showAdmin && (dashboard.diagnostics?.scrapedStudents?.length ?? 0) > 0 && (
           <p className="hint">
@@ -792,7 +896,10 @@ function forStudentMenus(
   return menus.filter((menu) => {
     if (menu.studentId) return menu.studentId === sid;
     if (menu.attachmentId && attachments.some((a) => a.id === menu.attachmentId)) return true;
-    if (menu.attachmentId && notices.some((n) => n.attachments?.some((a) => a.id === menu.attachmentId))) {
+    if (
+      menu.attachmentId &&
+      notices.some((n) => n.attachments?.some((a) => a.id === menu.attachmentId))
+    ) {
       return true;
     }
     return false;
@@ -819,38 +926,20 @@ function Section({
   );
 }
 
-function groupScheduleByDay(slots: ScheduleSlot[]) {
-  const order: string[] = [];
-  const map = new Map<string, ScheduleSlot[]>();
-  for (const slot of slots) {
-    const day = slot.day || "Horari";
-    if (!map.has(day)) {
-      map.set(day, []);
-      order.push(day);
-    }
-    map.get(day)!.push(slot);
-  }
-  return order.map((day) => [day, map.get(day)!] as const);
-}
-
-function Empty({ diagnostics }: { diagnostics?: Dashboard["diagnostics"] }) {
+function Empty({ message }: { message?: string }) {
   return (
     <div className="empty">
-      <p>Encara no hi ha dades parsejades aquí.</p>
-      {diagnostics?.note && <p>{diagnostics.note}</p>}
-      {diagnostics?.pages?.length ? (
-        <p className="hint">
-          Pàgines:{" "}
-          {diagnostics.pages
-            .slice(0, 8)
-            .map((p) => p.key)
-            .join(" · ")}
-        </p>
-      ) : null}
-      {diagnostics?.scrapeErrors?.length ? (
-        <p className="hint">Errors: {diagnostics.scrapeErrors.slice(0, 3).join(" · ")}</p>
-      ) : null}
-      <p className="hint">Usa el botó Admin · Rescanejar per tornar a capturar.</p>
+      <p>{message || "No hi ha dades."}</p>
     </div>
   );
+}
+
+function normalizeDay(day: string) {
+  const d = day.trim().toLowerCase();
+  if (d.startsWith("dil")) return "Dilluns";
+  if (d.startsWith("dima") || d.startsWith("mart")) return "Dimarts";
+  if (d.startsWith("dime") || d.startsWith("mier") || d.startsWith("mié")) return "Dimecres";
+  if (d.startsWith("dij") || d.startsWith("jue")) return "Dijous";
+  if (d.startsWith("div") || d.startsWith("vie")) return "Divendres";
+  return day;
 }

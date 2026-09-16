@@ -30,6 +30,11 @@ import {
   mockAllowed,
   requireBrowserSession,
 } from "./browser-session";
+import {
+  deleteCustomSlot,
+  listCustomSlots,
+  upsertCustomSlot,
+} from "./custom-schedule";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -243,6 +248,41 @@ app.get("/api/attachments/:id", async (c) => {
       "cache-control": "private, max-age=3600",
     },
   });
+});
+
+app.get("/api/schedule/custom", async (c) => {
+  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  const studentId = c.req.query("studentId") || undefined;
+  return c.json({ ok: true, slots: await listCustomSlots(studentId) });
+});
+
+app.post("/api/schedule/custom", async (c) => {
+  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  try {
+    const body = z
+      .object({
+        id: z.string().optional(),
+        day: z.string().min(1),
+        start: z.string().optional(),
+        end: z.string().optional(),
+        subject: z.string().min(1),
+        studentId: z.string().optional(),
+        studentName: z.string().optional(),
+      })
+      .parse(await c.req.json());
+    const slot = await upsertCustomSlot(body);
+    const dashboard = await getDashboard();
+    return c.json({ ok: true, slot, dashboard });
+  } catch (error) {
+    return c.json({ ok: false, error: errorMessage(error) }, 400);
+  }
+});
+
+app.delete("/api/schedule/custom/:id", async (c) => {
+  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  await deleteCustomSlot(c.req.param("id"));
+  const dashboard = await getDashboard();
+  return c.json({ ok: true, dashboard });
 });
 
 if (webRootAbs && webRootRel) {

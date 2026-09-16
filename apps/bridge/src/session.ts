@@ -8,7 +8,6 @@ import {
   parseMessages,
   parseNotices,
   parseSchedule,
-  parseSectionTargets,
   parseStudents,
   parseSubjects,
   enrichStudent,
@@ -28,6 +27,7 @@ import { analyzePages, type StructureReport } from "./structure";
 import { storePdf } from "./attachments";
 import { extractMenuFromPdf } from "./menu-pdf";
 import { mockAllowed, passwordsMatch } from "./browser-session";
+import { listCustomSlots } from "./custom-schedule";
 import * as cheerio from "cheerio";
 
 const BOOT_PATHS = [
@@ -261,16 +261,28 @@ export async function forgetCredentials() {
 
 export async function getDashboard(opts?: { refresh?: boolean }): Promise<Dashboard> {
   if (state.mode === "mock" || !state.client) {
-    return state.lastDashboard ?? mockDashboard();
+    const dash = state.lastDashboard ?? mockDashboard();
+    return mergeCustomIntoDashboard(dash);
   }
   if (!opts?.refresh && state.lastDashboard?.source === "live") {
-    return state.lastDashboard;
+    return mergeCustomIntoDashboard(state.lastDashboard);
   }
   return buildDashboard(state.client);
 }
 
 export function getCachedDashboard() {
   return state.lastDashboard ?? null;
+}
+
+async function mergeCustomIntoDashboard(dash: Dashboard): Promise<Dashboard> {
+  const custom = await listCustomSlots();
+  const scraped = (dash.schedule ?? []).filter((s) => !s.custom);
+  const schedule = mergeUnique(
+    scraped,
+    custom.map((s) => ({ ...s, custom: true as const })),
+    (s) => `${s.studentId || ""}:${s.id}`,
+  );
+  return { ...dash, schedule };
 }
 
 export function getCaptures() {
@@ -386,108 +398,138 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   for (const mat of matriculaTargets.slice(0, 8)) {
     const student = students.find((s) => s.id === mat.alumnoId);
     const ctx = { studentId: mat.alumnoId, studentName: student?.name };
-    const studentPages: string[] = [];
+    const q =
+      `alumno_id=${mat.alumnoId}` +
+      (mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : "");
     try {
-      const matHref =
-        mat.matriculaId
-          ? `alumno_matricula_wf?alumno_id=${mat.alumnoId}&matricula_id=${mat.matriculaId}`
-          : mat.href;
+      const matHref = mat.matriculaId
+        ? `alumno_matricula_wf?${q}`
+        : mat.href;
       const page = await client.get(matHref);
       if (/login_wf/i.test(page.url)) {
         scrapeErrors.push(`${matHref}: redirect login`);
         continue;
       }
       store(`st_${mat.alumnoId}_${captureKey(matHref)}`, page.html);
-      studentPages.push(page.html);
       if (student) {
         students = students.map((s) =>
           s.id === student.id ? enrichStudent(page.html, s) : s,
         );
       }
-      const sections = parseSectionTargets(page.html);
-      const extras = [
-        ...sections.map((s) => s.href),
-        `alumno_avisos_wf?tipo=ag&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
-        `alumno_avisos_wf?tipo=as&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
-        `alumno_avisos_wf?tipo=ac&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
-        `alumno_avisos_wf?tipo=cm&cargado=true&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
-        `alumno_calificaciones_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
-        `alumno_materias_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
-        `alumno_horarios_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
-      ];
-      for (const href of unique(extras).slice(0, 24)) {
-        const pageKey = `st_${mat.alumnoId}_${captureKey(href)}`;
-        if (!href || pages[pageKey]) continue;
-        try {
-          const sub = await client.get(href);
-          if (/login_wf/i.test(sub.url)) continue;
-          const $ = cheerio.load(sub.html);
-          const fragment = $(".imc-contenido").first().html();
-          const html =
-            fragment ? `<div class="imc-contenido">${fragment}</div>${sub.html}` : sub.html;
-          store(pageKey, html);
-          studentPages.push(html);
-        } catch (err) {
-          scrapeErrors.push(`${href}: ${err instanceof Error ? err.message : "error"}`);
-        }
-      }
 
-      const blob = studentPages.join("\n");
-      notices = mergeUnique(
-        notices,
-        parseNotices(blob, ctx),
-        (n) => `${n.studentId || ""}:${n.id}:${n.title}`,
-      );
-      absences = mergeUnique(
-        absences,
-        tagStudent(parseAbsences(blob), ctx),
-        (a) => `${a.studentId}:${a.id}:${a.date}`,
-      );
-      grades = mergeUnique(
-        grades,
-        tagStudent(parseGrades(blob), ctx),
-        (g) => `${g.studentId}:${g.id}:${g.subject}:${g.value}`,
-      );
-      messages = mergeUnique(
-        messages,
-        tagStudent(parseMessages(blob), ctx),
-        (m) => `${m.studentId}:${m.id}:${m.subject}`,
-      );
-      activities = mergeUnique(
-        activities,
-        tagStudent(parseActivities(blob), ctx),
-        (a) => `${a.studentId}:${a.id}:${a.title}`,
-      );
-      subjects = mergeUnique(
-        subjects,
-        tagStudent(parseSubjects(blob), ctx),
-        (s) => `${s.studentId}:${s.subject}`,
-      );
-      schedule = mergeUnique(
-        schedule,
-        tagStudent(parseSchedule(blob), ctx).map((s, i) => ({
-          ...s,
-          id: `${ctx.studentId}-${s.id}-${i}`,
-        })),
-        (s) => `${s.studentId}:${s.day}:${s.start}:${s.subject}`,
-      );
+      const fetchTyped = async (href: string) => {
+        const pageKey = `st_${mat.alumnoId}_${captureKey(href)}`;
+        if (pages[pageKey]) return pages[pageKey];
+        const sub = await client.get(href);
+        if (/login_wf/i.test(sub.url)) return "";
+        const $ = cheerio.load(sub.html);
+        const fragment = $(".imc-contenido").first().html();
+        const html =
+          fragment ? `<div class="imc-contenido">${fragment}</div>${sub.html}` : sub.html;
+        store(pageKey, html);
+        return html;
+      };
+
+      // Parse each section ONLY from its own page (no cross-contamination)
+      try {
+        const agHtml = await fetchTyped(`alumno_avisos_wf?tipo=ag&${q}`);
+        notices = mergeUnique(
+          notices,
+          parseNotices(agHtml, ctx),
+          (n) => `${n.studentId || ""}:${n.id}:${n.title}`,
+        );
+      } catch (err) {
+        scrapeErrors.push(`agenda ${mat.alumnoId}: ${err instanceof Error ? err.message : "error"}`);
+      }
+      try {
+        const asHtml = await fetchTyped(`alumno_avisos_wf?tipo=as&${q}`);
+        absences = mergeUnique(
+          absences,
+          tagStudent(parseAbsences(asHtml), ctx),
+          (a) => `${a.studentId}:${a.id}:${a.date}`,
+        );
+      } catch (err) {
+        scrapeErrors.push(`assist ${mat.alumnoId}: ${err instanceof Error ? err.message : "error"}`);
+      }
+      try {
+        const acHtml = await fetchTyped(`alumno_avisos_wf?tipo=ac&${q}`);
+        activities = mergeUnique(
+          activities,
+          tagStudent(parseActivities(acHtml), ctx),
+          (a) => `${a.studentId}:${a.id}:${a.title}`,
+        );
+      } catch (err) {
+        scrapeErrors.push(`activ ${mat.alumnoId}: ${err instanceof Error ? err.message : "error"}`);
+      }
+      try {
+        const cmHtml = await fetchTyped(`alumno_avisos_wf?tipo=cm&cargado=true&${q}`);
+        messages = mergeUnique(
+          messages,
+          tagStudent(parseMessages(cmHtml), ctx),
+          (m) => `${m.studentId}:${m.id}:${m.subject}`,
+        );
+      } catch (err) {
+        scrapeErrors.push(`com ${mat.alumnoId}: ${err instanceof Error ? err.message : "error"}`);
+      }
+      try {
+        const gradesHtml = await fetchTyped(`alumno_calificaciones_wf?${q}`);
+        grades = mergeUnique(
+          grades,
+          tagStudent(parseGrades(gradesHtml), ctx),
+          (g) => `${g.studentId}:${g.id}:${g.subject}:${g.value}`,
+        );
+      } catch (err) {
+        scrapeErrors.push(`notes ${mat.alumnoId}: ${err instanceof Error ? err.message : "error"}`);
+      }
+      try {
+        const subjHtml = await fetchTyped(`alumno_materias_wf?${q}`);
+        subjects = mergeUnique(
+          subjects,
+          tagStudent(parseSubjects(subjHtml), ctx),
+          (s) => `${s.studentId}:${s.subject}`,
+        );
+      } catch (err) {
+        scrapeErrors.push(`mat ${mat.alumnoId}: ${err instanceof Error ? err.message : "error"}`);
+      }
+      try {
+        const horHtml = await fetchTyped(`alumno_horarios_wf?${q}`);
+        schedule = mergeUnique(
+          schedule,
+          tagStudent(parseSchedule(horHtml), ctx).map((s, i) => ({
+            ...s,
+            id: `${ctx.studentId}-${s.id}-${i}`,
+          })),
+          (s) => `${s.studentId}:${s.day}:${s.start}:${s.subject}`,
+        );
+      } catch (err) {
+        scrapeErrors.push(`horari ${mat.alumnoId}: ${err instanceof Error ? err.message : "error"}`);
+      }
     } catch (err) {
       scrapeErrors.push(`${mat.href}: ${err instanceof Error ? err.message : "error"}`);
     }
   }
 
-  // Open aviso details and pull PDFs (Agenda → PDF)
-  for (const notice of notices.slice(0, 28)) {
-    if (!notice.detailHref && !notice.hasDetail) continue;
+  // Open aviso details and pull PDFs (Agenda → PDF → Menús)
+  for (const notice of notices.slice(0, 40)) {
     const detailHref =
       notice.detailHref ||
+      (notice.id && /^\d+$/.test(notice.id)
+        ? `alumno_avisos_wf?tipo=ag&agenda_id=${notice.id}${notice.studentId ? `&alumno_id=${notice.studentId}` : ""}`
+        : "");
+    if (!detailHref && !notice.hasDetail) continue;
+    const href =
+      detailHref ||
       `alumno_avisos_wf?tipo=ag&agenda_id=${notice.id}${notice.studentId ? `&alumno_id=${notice.studentId}` : ""}`;
     try {
-      const detail = await client.get(detailHref);
+      const detail = await client.get(href);
       if (/login_wf/i.test(detail.url)) continue;
-      store(`detail_${notice.studentId || "x"}_${captureKey(detailHref)}`, detail.html);
+      store(`detail_${notice.studentId || "x"}_${captureKey(href)}`, detail.html);
+      const bodyText = cheerio.load(detail.html)(".imc-contenido, .imc-aviso-detalle, body").first().text();
+      if (bodyText && bodyText.length > 20 && (!notice.body || notice.body === notice.title)) {
+        notice.body = bodyText.replace(/\s+/g, " ").trim().slice(0, 500);
+      }
       const docLinks = parseDocumentLinks(detail.html, detail.url);
-      for (const doc of docLinks.slice(0, 6)) {
+      for (const doc of docLinks.slice(0, 8)) {
         try {
           const file = await client.getBinary(doc.href);
           const isPdf =
@@ -507,9 +549,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
             noticeId: notice.id,
             studentId: notice.studentId,
           });
+          notice.attachments = [...(notice.attachments || []), att];
           if (seenPdf.has(att.sha256)) {
-            notice.attachments = [...(notice.attachments || []), att];
-            // still attach menu tag for this student if shared PDF
             const existing = menus.find((m) => m.attachmentId === att.id);
             if (existing && notice.studentId && !existing.studentId) {
               existing.studentId = notice.studentId;
@@ -519,11 +560,12 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
           }
           seenPdf.add(att.sha256);
           attachments.push(att);
-          notice.attachments = [...(notice.attachments || []), att];
           const looksMenu =
             att.kind === "menu_menjador" ||
             att.kind === "menu_especial" ||
-            /men[uú]|menjador|comedor/i.test(att.filename + " " + notice.title + " " + doc.text);
+            /men[uú]|menjador|comedor|dieta/i.test(
+              `${att.filename} ${notice.title} ${doc.text} ${notice.body || ""}`,
+            );
           if (looksMenu) {
             try {
               const menu = await extractMenuFromPdf(file.buffer, {
@@ -535,6 +577,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
                 menu.studentId = notice.studentId;
                 menu.studentName = notice.studentName;
                 menus.push(menu);
+              } else {
+                scrapeErrors.push(`menu buit: ${att.filename}`);
               }
             } catch (err) {
               scrapeErrors.push(
@@ -549,14 +593,18 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
         }
       }
     } catch (err) {
-      scrapeErrors.push(
-        `detail ${detailHref}: ${err instanceof Error ? err.message : "error"}`,
-      );
+      scrapeErrors.push(`detail ${href}: ${err instanceof Error ? err.message : "error"}`);
     }
   }
 
   state.structure = analyzePages(pages);
   const behaviors = parseBehaviors(homeHtml);
+  const customSlots = await listCustomSlots();
+  schedule = mergeUnique(
+    schedule,
+    customSlots.map((s) => ({ ...s, custom: true })),
+    (s) => `${s.studentId}:${s.id}`,
+  );
 
   const scrapedStudents = students.map((s) => ({
     id: s.id,
@@ -639,10 +687,6 @@ function mergeUnique<T>(a: T[], b: T[], key: (item: T) => string) {
     out.push(item);
   }
   return out;
-}
-
-function unique(items: string[]) {
-  return [...new Set(items.map((i) => i.replace(/^\.\//, "").trim()).filter(Boolean))];
 }
 
 function redactSensitive(html: string) {

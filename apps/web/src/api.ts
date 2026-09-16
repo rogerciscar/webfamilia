@@ -105,6 +105,7 @@ export type ScheduleSlot = {
   subject: string;
   studentId?: string;
   studentName?: string;
+  custom?: boolean;
 };
 
 export type MenuDay = {
@@ -251,6 +252,27 @@ export function logout() {
 
 export function fetchDashboard(refresh = false) {
   return request<Dashboard>(`/api/dashboard${refresh ? "?refresh=1" : ""}`);
+}
+
+export function saveCustomSlot(body: {
+  id?: string;
+  day: string;
+  start?: string;
+  end?: string;
+  subject: string;
+  studentId?: string;
+  studentName?: string;
+}) {
+  return request<{ slot: ScheduleSlot; dashboard: Dashboard }>("/api/schedule/custom", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function removeCustomSlot(id: string) {
+  return request<{ dashboard: Dashboard }>(`/api/schedule/custom/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 export function adminScrape() {
