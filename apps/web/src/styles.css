@@ -170,17 +170,30 @@ label {
   margin: 0 auto;
   padding: calc(0.85rem + var(--safe-top)) 1rem calc(var(--tabbar-h) + 1rem);
 }
+.sticky-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  margin: calc(-0.85rem - var(--safe-top)) -1rem 0.85rem;
+  padding: calc(0.65rem + var(--safe-top)) 1rem 0.55rem;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--paper) 92%, white) 0%,
+      color-mix(in srgb, var(--paper) 88%, var(--mist)) 100%);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
 .topbar {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  gap: 0.55rem;
+  margin-bottom: 0.55rem;
   animation: rise 500ms ease both;
 }
 .topbar-main {
   display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.85rem;
   min-width: 0;
 }
 .topbar-text {
@@ -202,12 +215,16 @@ label {
 .topbar .student-line,
 .topbar .meta-line,
 .topbar .status-dot {
-  margin: 0.2rem 0 0;
+  margin: 0.15rem 0 0;
   color: var(--ink-soft);
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.topbar .meta-line,
+.topbar .status-dot {
+  display: none;
 }
 .topbar-actions {
   display: flex;
@@ -216,21 +233,21 @@ label {
   justify-content: flex-end;
 }
 .topbar-actions button {
-  padding: 0.55rem 0.8rem;
-  font-size: 0.88rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.86rem;
 }
 
 .avatar-btn {
-  width: 56px;
-  height: 56px;
-  min-height: 56px;
+  width: 92px;
+  height: 92px;
+  min-height: 92px;
   padding: 0;
-  border-radius: 18px;
+  border-radius: 28px;
   overflow: hidden;
   flex-shrink: 0;
   background: color-mix(in srgb, var(--brand) 18%, white);
   border: 1px solid var(--line);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--brand) 18%, transparent);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--brand) 22%, transparent);
 }
 .avatar-img {
   width: 100%;
@@ -244,16 +261,53 @@ label {
   width: 100%;
   height: 100%;
   font-family: var(--font-display);
-  font-size: 1.35rem;
+  font-size: 2rem;
   color: var(--brand-deep);
 }
-.chip-avatar {
-  width: 1.15rem;
-  height: 1.15rem;
-  border-radius: 999px;
+.students {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+  margin-bottom: 0;
+  -webkit-overflow-scrolling: touch;
+}
+.students button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: color-mix(in srgb, white 70%, var(--mist));
+  color: var(--ink);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem 0.35rem 0.35rem;
+  min-height: 48px;
+}
+.students button.active {
+  background: var(--brand-deep);
+  color: white;
+}
+.chip-avatar,
+.chip-avatar-fallback {
+  width: 36px;
+  height: 36px;
+  border-radius: 14px;
   object-fit: cover;
-  margin-right: 0.25rem;
-  vertical-align: -0.2rem;
+  flex-shrink: 0;
+}
+.chip-avatar-fallback {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--brand) 16%, white);
+  color: var(--brand-deep);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+}
+.students button.active .chip-avatar-fallback {
+  background: color-mix(in srgb, white 18%, transparent);
+  color: white;
 }
 .sr-only {
   position: absolute;
@@ -534,6 +588,30 @@ label {
 .data-table .time span { font-weight: 500; font-size: 0.85rem; }
 .data-table .cell-main { font-weight: 600; color: var(--ink); }
 .data-table .cell-soft { color: var(--ink-soft); font-weight: 500; }
+.data-table.dense {
+  min-width: 520px;
+  font-size: 0.82rem;
+}
+.data-table.dense th,
+.data-table.dense td {
+  padding: 0.32rem 0.55rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.data-table.dense thead th {
+  font-size: 0.66rem;
+  padding: 0.28rem 0.55rem;
+}
+.data-table.dense .cell-main {
+  font-weight: 500;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.data-table.dense .time {
+  width: auto;
+  font-size: 0.8rem;
+}
 .pill {
   display: inline-flex;
   align-items: center;
@@ -555,25 +633,6 @@ label {
   padding: 1.2rem 0;
   color: var(--ink-soft);
   border-top: 1px solid var(--line);
-}
-.students {
-  display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding-bottom: 0.35rem;
-  margin-bottom: 0.85rem;
-  -webkit-overflow-scrolling: touch;
-}
-.students button {
-  background: color-mix(in srgb, white 70%, var(--mist));
-  color: var(--ink);
-  border: 1px solid var(--line);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.students button.active {
-  background: var(--brand-deep);
-  color: white;
 }
 .status-dot {
   display: inline-flex;
@@ -625,8 +684,15 @@ label {
   .topbar .student-line,
   .topbar .meta-line,
   .topbar .status-dot {
+    display: block;
     white-space: normal;
     max-width: none;
+  }
+  .avatar-btn {
+    width: 108px;
+    height: 108px;
+    min-height: 108px;
+    border-radius: 32px;
   }
   .tabs {
     display: flex;

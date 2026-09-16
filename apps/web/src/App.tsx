@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.1";
+const APP_VERSION = "0.2.2";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -513,6 +513,7 @@ export default function App() {
           onConfirm={(blob) => void onConfirmCrop(blob)}
         />
       )}
+      <div className="sticky-chrome">
       <header className="topbar">
         <div className="topbar-main">
           <button
@@ -583,6 +584,10 @@ export default function App() {
         <div className="students" role="tablist" aria-label="Alumnes">
           {dashboard.students.map((s) => {
             const info = dashboard.diagnostics?.scrapedStudents?.find((x) => x.id === s.id);
+            const photoSrc =
+              s.photoUrl || s.hasPhoto
+                ? `${s.photoUrl || `/api/students/${s.id}/photo`}?t=${dashboard.capturedAt}`
+                : null;
             return (
             <button
               key={s.id}
@@ -590,12 +595,10 @@ export default function App() {
               className={s.id === student?.id ? "active" : ""}
               onClick={() => setStudentId(s.id)}
             >
-              {(s.photoUrl || s.hasPhoto) && (
-                <img
-                  src={`${s.photoUrl || `/api/students/${s.id}/photo`}?t=${dashboard.capturedAt}`}
-                  alt=""
-                  className="chip-avatar"
-                />
+              {photoSrc ? (
+                <img src={photoSrc} alt="" className="chip-avatar" />
+              ) : (
+                <span className="chip-avatar-fallback">{s.name.slice(0, 1)}</span>
               )}
               {s.name.split(" ")[0]}
               {info ? ` · ${info.notices}` : ""}
@@ -604,6 +607,7 @@ export default function App() {
           })}
         </div>
       )}
+      </div>
       <nav className="tabs" aria-label="Seccions">
         {TABS.map((t) => (
           <button
@@ -838,7 +842,7 @@ export default function App() {
                   </p>
                   {(menu.variants[0]?.days ?? []).length > 0 && (
                     <div className="table-scroll">
-                      <table className="data-table">
+                      <table className="data-table dense">
                         <thead>
                           <tr>
                             <th scope="col">Data</th>
@@ -852,9 +856,11 @@ export default function App() {
                         <tbody>
                           {menu.variants[0].days.slice(0, 31).map((d) => (
                             <tr key={d.date}>
-                              <td className="time">{d.date}</td>
-                              <td className="cell-soft">{d.weekday}</td>
-                              <td className="cell-main">{d.courses.join(" · ") || "—"}</td>
+                              <td className="time">{d.date.slice(5)}</td>
+                              <td className="cell-soft">{(d.weekday || "").slice(0, 3)}</td>
+                              <td className="cell-main" title={d.courses.join(" · ")}>
+                                {d.courses.join(" · ") || "—"}
+                              </td>
                               <td>{d.saladCode || "—"}</td>
                               <td className="cell-soft">{d.dessert || "—"}</td>
                               <td className="time">{d.nutrition?.kcal ?? "—"}</td>
