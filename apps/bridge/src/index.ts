@@ -37,6 +37,7 @@ import {
 } from "./custom-schedule";
 import {
   deleteStudentPhoto,
+  photosBackend,
   readStudentPhoto,
   saveStudentPhoto,
 } from "./student-photos";
@@ -88,6 +89,7 @@ app.get("/api/health", async (c) => {
         (process.env.WF_PASS || process.env.PONT_WF_PASS),
     ),
     scrape: session.scrape,
+    photos: photosBackend(),
   });
 });
 
@@ -295,12 +297,13 @@ app.delete("/api/schedule/custom/:id", async (c) => {
 
 app.get("/api/students/:id/photo", async (c) => {
   if (!(await requireBrowserSession(c))) return c.text("Unauthorized", 401);
-  const photo = await readStudentPhoto(c.req.param("id"));
+  const studentId = decodeURIComponent(c.req.param("id"));
+  const photo = await readStudentPhoto(studentId);
   if (!photo) return c.text("Not found", 404);
   return new Response(new Uint8Array(photo.buffer), {
     headers: {
       "content-type": photo.mime,
-      "cache-control": "private, max-age=60",
+      "cache-control": "private, no-cache, max-age=0",
     },
   });
 });
@@ -308,7 +311,7 @@ app.get("/api/students/:id/photo", async (c) => {
 app.post("/api/students/:id/photo", async (c) => {
   if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   try {
-    const studentId = c.req.param("id");
+    const studentId = decodeURIComponent(c.req.param("id"));
     const form = await c.req.formData();
     const entry = form.get("file") ?? form.get("photo");
     if (!entry || typeof entry === "string") {
@@ -316,9 +319,18 @@ app.post("/api/students/:id/photo", async (c) => {
     }
     const buf = Buffer.from(await entry.arrayBuffer());
     const mime = ("type" in entry && entry.type) || "image/jpeg";
-    await saveStudentPhoto({ studentId, buffer: buf, mime: String(mime) });
+    const saved = await saveStudentPhoto({ studentId, buffer: buf, mime: String(mime) });
     const dashboard = await getDashboard({ refresh: false });
-    return c.json({ ok: true, dashboard });
+    return c.json({
+      ok: true,
+      dashboard,
+      photo: {
+        studentId: saved.studentId,
+        bytes: saved.bytes,
+        mime: saved.mime,
+        backend: photosBackend(),
+      },
+    });
   } catch (error) {
     console.error("[photos] upload failed:", error);
     return c.json({ ok: false, error: errorMessage(error) }, 400);
@@ -327,7 +339,7 @@ app.post("/api/students/:id/photo", async (c) => {
 
 app.delete("/api/students/:id/photo", async (c) => {
   if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
-  await deleteStudentPhoto(c.req.param("id"));
+  await deleteStudentPhoto(decodeURIComponent(c.req.param("id")));
   const dashboard = await getDashboard();
   return c.json({ ok: true, dashboard });
 });

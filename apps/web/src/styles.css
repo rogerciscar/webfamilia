@@ -696,6 +696,30 @@ label {
   background: color-mix(in srgb, var(--brand) 10%, white);
   box-shadow: inset 3px 0 0 var(--brand-deep);
 }
+.slot-add-line {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.65rem;
+}
+.slot-add-line input {
+  min-height: 40px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.86rem;
+  border-radius: 12px;
+}
+.slot-add-line input[type="time"] {
+  width: 5.6rem;
+  padding: 0.4rem 0.35rem;
+}
+.slot-add-line button {
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0.35rem 0.7rem;
+  font-size: 1.2rem;
+  line-height: 1;
+}
 .menu-variant-title {
   margin: 0 0 0.4rem;
   font-size: 0.95rem;

@@ -119,29 +119,41 @@ export async function saveStudentPhoto(input: {
   }
   if (input.buffer.length < 32) throw new Error("Imatge buida.");
   if (input.buffer.length > MAX_BYTES) throw new Error("Imatge massa gran (màx. 6 MB).");
+  const studentId = String(input.studentId || "").trim();
+  if (!studentId) throw new Error("Falta l'id de l'alumne.");
   const meta: StoredPhoto = {
-    studentId: input.studentId,
+    studentId,
     mime: mime.startsWith("image/") ? mime : "image/jpeg",
     bytes: input.buffer.length,
     updatedAt: new Date().toISOString(),
   };
-  if (pool) {
-    await ensurePg();
-    await pool!.query(
-      `
-      INSERT INTO pont_student_photos (student_id, mime, bytes, data, updated_at)
-      VALUES ($1, $2, $3, $4, NOW())
-      ON CONFLICT (student_id)
-      DO UPDATE SET mime = EXCLUDED.mime, bytes = EXCLUDED.bytes, data = EXCLUDED.data, updated_at = NOW()
-      `,
-      [input.studentId, meta.mime, meta.bytes, input.buffer],
+  if (!pool) {
+    throw new Error(
+      "No hi ha DATABASE_URL: les fotos s'han de desar a Postgres. Configura la base de dades a Railway (no cal bucket).",
     );
-    return meta;
   }
-  await ensureDir();
-  await deleteStudentPhotoFiles(input.studentId);
-  await writeFile(binaryPath(input.studentId, meta.mime), input.buffer);
-  await writeFile(metaPath(input.studentId), JSON.stringify(meta));
+  await ensurePg();
+  await pool!.query(
+    `
+    INSERT INTO pont_student_photos (student_id, mime, bytes, data, updated_at)
+    VALUES ($1, $2, $3, $4, NOW())
+    ON CONFLICT (student_id)
+    DO UPDATE SET mime = EXCLUDED.mime, bytes = EXCLUDED.bytes, data = EXCLUDED.data, updated_at = NOW()
+    `,
+    [studentId, meta.mime, meta.bytes, input.buffer],
+  );
+  // Best-effort mirror on volume/disk (optional; DB is source of truth)
+  try {
+    await ensureDir();
+    await deleteStudentPhotoFiles(studentId);
+    await writeFile(binaryPath(studentId, meta.mime), input.buffer);
+    await writeFile(metaPath(studentId), JSON.stringify(meta));
+  } catch (err) {
+    console.warn("[photos] disk mirror skipped:", err);
+  }
+  console.log(
+    `[photos] saved student=${studentId} bytes=${meta.bytes} mime=${meta.mime} backend=postgres`,
+  );
   return meta;
 }
 

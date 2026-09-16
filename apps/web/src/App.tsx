@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.6";
+const APP_VERSION = "0.2.7";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -269,9 +269,23 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      const file = new File([blob], "carnet.jpg", { type: "image/jpeg" });
-      const res = await uploadStudentPhoto(studentId, file);
-      setDashboard(res.dashboard);
+      const res = await uploadStudentPhoto(studentId, blob, "carnet.jpg");
+      const dash = res.dashboard;
+      // Ensure UI shows photo even if merge lagged
+      const students = dash.students.map((s) =>
+        s.id === studentId
+          ? {
+              ...s,
+              hasPhoto: true,
+              photoUrl: `/api/students/${encodeURIComponent(studentId)}/photo`,
+            }
+          : s,
+      );
+      setDashboard({
+        ...dash,
+        students,
+        student: students.find((s) => s.id === dash.student?.id) ?? students[0] ?? dash.student,
+      });
       setPhotoTick(Date.now());
       setCropFile(null);
     } catch (err) {
@@ -944,45 +958,35 @@ export default function App() {
             </div>
           )}
           <form
-            className="panel"
-            style={{ marginTop: "1rem" }}
+            className="slot-add-line"
             onSubmit={(e) => {
               e.preventDefault();
               void onAddSlot();
             }}
           >
-            <p className="hint">Afegeix un bloc propi ({scheduleDay})</p>
-            <label>
-              Nom
-              <input
-                value={slotForm.subject}
-                onChange={(e) => setSlotForm((f) => ({ ...f, subject: e.target.value }))}
-                placeholder="Piscina"
-                required
-              />
-            </label>
-            <div className="row two">
-              <label>
-                Inici
-                <input
-                  type="time"
-                  value={slotForm.start}
-                  onChange={(e) => setSlotForm((f) => ({ ...f, start: e.target.value }))}
-                  required
-                />
-              </label>
-              <label>
-                Fi
-                <input
-                  type="time"
-                  value={slotForm.end}
-                  onChange={(e) => setSlotForm((f) => ({ ...f, end: e.target.value }))}
-                  required
-                />
-              </label>
-            </div>
-            <button type="submit" disabled={busy || !sid}>
-              Afegir
+            <input
+              value={slotForm.subject}
+              onChange={(e) => setSlotForm((f) => ({ ...f, subject: e.target.value }))}
+              placeholder={`Bloc · ${scheduleDay.slice(0, 3)}`}
+              required
+              aria-label="Nom del bloc"
+            />
+            <input
+              type="time"
+              value={slotForm.start}
+              onChange={(e) => setSlotForm((f) => ({ ...f, start: e.target.value }))}
+              required
+              aria-label="Inici"
+            />
+            <input
+              type="time"
+              value={slotForm.end}
+              onChange={(e) => setSlotForm((f) => ({ ...f, end: e.target.value }))}
+              required
+              aria-label="Fi"
+            />
+            <button type="submit" disabled={busy || !sid} title="Afegir">
+              +
             </button>
           </form>
         </Section>

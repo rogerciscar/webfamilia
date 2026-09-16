@@ -302,9 +302,9 @@ export function fetchStructure() {
   );
 }
 
-export async function uploadStudentPhoto(studentId: string, file: File) {
+export async function uploadStudentPhoto(studentId: string, file: Blob, filename = "carnet.jpg") {
   const body = new FormData();
-  body.append("file", file, file.name || "carnet.jpg");
+  body.append("file", file, filename);
   const res = await fetch(`/api/students/${encodeURIComponent(studentId)}/photo`, {
     method: "POST",
     credentials: "include",
@@ -314,7 +314,11 @@ export async function uploadStudentPhoto(studentId: string, file: File) {
   if (!res.ok || data?.ok === false) {
     throw new Error(data?.error || `Error ${res.status}`);
   }
-  return data as { ok: true; dashboard: Dashboard };
+  return data as {
+    ok: true;
+    dashboard: Dashboard;
+    photo?: { studentId: string; bytes: number; mime: string; backend: string };
+  };
 }
 
 export async function removeStudentPhoto(studentId: string) {
