@@ -108,5 +108,42 @@ export function mockDashboard(): Dashboard {
         kind: "positiu",
       },
     ],
+    subjects: [
+      {
+        id: "s1",
+        subject: "Matemàtiques",
+        teacher: "Tutor/a Exemple",
+        attention: "Dijous, de 13:00 a 15:00 h.",
+      },
+      {
+        id: "s2",
+        subject: "Valencià",
+        teacher: "Tutor/a Exemple",
+        attention: "Dijous, de 13:00 a 15:00 h.",
+      },
+    ],
+    schedule: [
+      {
+        id: "h1",
+        day: "Dilluns",
+        start: "09:00",
+        end: "09:40",
+        subject: "Matemàtiques",
+      },
+      {
+        id: "h2",
+        day: "Dilluns",
+        start: "09:40",
+        end: "10:20",
+        subject: "Valencià",
+      },
+      {
+        id: "h3",
+        day: "Dimarts",
+        start: "09:00",
+        end: "09:40",
+        subject: "Educació Física",
+      },
+    ],
   };
 }

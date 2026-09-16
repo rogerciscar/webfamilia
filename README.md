@@ -51,9 +51,10 @@ En la pantalla inicial puedes:
 
 Tras el login, el bridge:
 
+- entra en `listar_alumnos_wf` (home real de Web Família 2.0)
+- sigue `alumno_matricula_wf` y pestañas `alumno_avisos_wf` / `alumno_horarios_wf` / …
 - guarda capturas HTML en memoria (`/api/debug/captures`)
-- intenta rutas candidatas (`avisos_wf`, `faltas_wf`, `notas_wf`, …)
-- parsea tablas/listas de forma tolerante (cada centro puede variar)
+- parsea markup real (`imc-listado-agenda`, `imc-horarios`, `imc-materias-tabla`, …)
 
 Si el HTML real no encaja, abre `/api/debug/captures/:key` y afinamos el parser.
 

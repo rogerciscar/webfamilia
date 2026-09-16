@@ -93,6 +93,15 @@ export class WebFamiliaClient {
     if (isLoginFailure(page)) {
       throw new Error(loginErrorMessage(page.html));
     }
+    // Real home after login is listar_alumnos_wf (not main_wf).
+    if (!/listar_alumnos_wf|imc-alumno-nombre|imc-alumnos/i.test(page.html)) {
+      try {
+        const home = await this.get("listar_alumnos_wf", { allowLoginPage: true });
+        if (!isLoginFailure(home) && home.html.length > 500) page = home;
+      } catch {
+        // keep original page
+      }
+    }
     return page;
   }
 
@@ -239,10 +248,16 @@ export function extractNavLinks(html: string) {
   $("[data-href], [data-url], [data-link]").each((_, el) => {
     const href =
       $(el).attr("data-href") || $(el).attr("data-url") || $(el).attr("data-link") || "";
-    if (!href) return;
+    if (!href || href.startsWith("javascript:")) return;
     const text = $(el).text().replace(/\s+/g, " ").trim();
     links.push({ href, text: text || href });
   });
+  // Hidden urlActual often points at the real JSP route.
+  const urlActual = $("#urlActual").attr("value") || $('input[name="urlActual"]').attr("value");
+  if (urlActual) {
+    const file = urlActual.split("/").pop() || "";
+    if (/_wf/i.test(file)) links.push({ href: file.replace(/\.jsp$/i, ""), text: "urlActual" });
+  }
   return uniqueBy(links, (l) => `${l.href}|${l.text}`);
 }
 
