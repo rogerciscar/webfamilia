@@ -333,13 +333,26 @@ app.delete("/api/students/:id/photo", async (c) => {
 });
 
 if (webRootAbs && webRootRel) {
-  app.use("/*", serveStatic({ root: webRootRel }));
+  const sendIndex = async (c: any) => {
+    const html = await readFile(path.join(webRootAbs, "index.html"), "utf8");
+    c.header("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
+    c.header("pragma", "no-cache");
+    c.header("expires", "0");
+    return c.html(html);
+  };
+  // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).
+  app.get("/", sendIndex);
+  app.get("/index.html", sendIndex);
+  app.use(
+    "/*",
+    serveStatic({
+      root: webRootRel,
+      rewriteRequestPath: (p) => (p === "/" || p === "/index.html" ? "/__skip_index__" : p),
+    }),
+  );
   app.get("*", async (c) => {
     if (c.req.path.startsWith("/api/")) return c.text("Not found", 404);
-    const html = await readFile(path.join(webRootAbs, "index.html"), "utf8");
-    c.header("cache-control", "no-store, no-cache, must-revalidate");
-    c.header("pragma", "no-cache");
-    return c.html(html);
+    return sendIndex(c);
   });
 } else {
   app.get("*", async (c, next) => {

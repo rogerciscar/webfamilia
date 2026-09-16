@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.5";
+const APP_VERSION = "0.2.6";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -559,7 +559,7 @@ export default function App() {
           <div className="topbar-text">
             <div className="topbar-title-row">
               <h1>WebFamilia</h1>
-              <span className="version-badge quiet">v{session?.version || APP_VERSION}</span>
+              <span className="version-badge quiet">v{APP_VERSION}</span>
               <button type="button" className="ghost topbar-exit" disabled={busy} onClick={onLogout}>
                 Sortir
               </button>
