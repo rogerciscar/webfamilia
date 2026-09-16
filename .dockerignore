@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+**/.vite
+**/dist
+apps/bridge/.data
+.data
+*.md
+apps/bridge/scripts

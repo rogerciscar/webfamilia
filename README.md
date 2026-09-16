@@ -26,15 +26,18 @@ En la pantalla inicial puedes:
 
 ## Deploy a Railway
 
-Eso de `Pont bridge API. Obri el frontend…` salía porque el deploy arrancaba **solo la API** sin la web construida. Ya está corregido: el build genera la webapp y el mismo servicio la sirve.
+**Git sí sube a Railway** (se crean deployments), pero los últimos builds estaban en **failure**. Por eso seguías viendo la página vieja de solo API.
 
-1. [railway.app](https://railway.app) → proyecto con repo `rogerciscar/webfamilia` (branch `main`)
-2. Un solo servicio. Debe usar `railway.toml`
-3. **Settings → Networking → Generate Domain**
-4. **Redeploy** tras este push
-5. (Recomendado) Volume en `/data` + variable `PONT_DATA_DIR=/data` para recordar login
+1. Abre el proyecto: https://railway.com/project/8ec7ac83-910c-46f7-b325-e5bc0105bbb9
+2. En el servicio → **Deployments**: mira el build rojo y los logs (ahí está el error real)
+3. Settings importantes:
+   - **Root Directory**: vacío / `/` (no `apps/bridge`)
+   - **Config as Code**: activado (usa `railway.toml` + `Dockerfile`)
+   - Branch: `main`
+4. Fuerza **Redeploy** / Command Palette → **Deploy Latest Commit**
+5. Cuando esté verde, `/api/health` debe devolver `"web": true`
 
-Comprueba `/api/health`: debe devolver `"web": true`.
+(Opcional) Volume en `/data` + `PONT_DATA_DIR=/data` para recordar login.
 
 ## Cómo funciona
 
