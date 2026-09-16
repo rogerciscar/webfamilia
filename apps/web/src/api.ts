@@ -170,3 +170,18 @@ export function forget() {
 export function fetchDashboard() {
   return request<Dashboard>("/api/dashboard");
 }
+
+export function adminScrape() {
+  return request<{
+    dashboard: Dashboard;
+    structure: unknown;
+    captures: Record<string, unknown>;
+    session: SessionStatus;
+  }>("/api/admin/scrape", { method: "POST", body: "{}" });
+}
+
+export function fetchStructure() {
+  return request<{ structure: unknown; captures: Record<string, unknown> }>(
+    "/api/admin/structure",
+  );
+}

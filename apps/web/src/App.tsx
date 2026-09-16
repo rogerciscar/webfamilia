@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
+  adminScrape,
   fetchDashboard,
   fetchSession,
   forget,
@@ -17,14 +18,31 @@ import {
 
 type Tab = "avisos" | "faltes" | "notes" | "missatges" | "activitats" | "horaris";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "avisos", label: "Avisos" },
-  { id: "faltes", label: "Faltes" },
-  { id: "notes", label: "Notes" },
-  { id: "missatges", label: "Missatges" },
-  { id: "activitats", label: "Activitats" },
-  { id: "horaris", label: "Horaris" },
+const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: "avisos", label: "Avisos", icon: "◎" },
+  { id: "faltes", label: "Faltes", icon: "◷" },
+  { id: "notes", label: "Notes", icon: "✎" },
+  { id: "missatges", label: "Msgs", icon: "✉" },
+  { id: "activitats", label: "Acts", icon: "⚑" },
+  { id: "horaris", label: "Horari", icon: "▦" },
 ];
+
+function Brand({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={compact ? "topbar-brand" : "brand-lockup"}>
+      <img src="/webfamilia-logo.png" alt="" width={compact ? 44 : 72} height={compact ? 44 : 72} />
+      {compact ? (
+        <div>
+          <h1>WebFamilia</h1>
+        </div>
+      ) : (
+        <h1 className="brand">
+          WebFamilia<em>.</em>
+        </h1>
+      )}
+    </div>
+  );
+}
 
 export default function App() {
   const [session, setSession] = useState<SessionStatus | null>(null);
@@ -41,6 +59,8 @@ export default function App() {
   const [masterPassword, setMasterPassword] = useState("");
   const [unlockPassword, setUnlockPassword] = useState("");
   const [studentId, setStudentId] = useState<string | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [structureJson, setStructureJson] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +81,6 @@ export default function App() {
           return;
         }
         if (status.hasStoredCredentials && status.vaultMode === "device") {
-          // server-side auto-login already attempted inside fetchSession
           if (!status.authenticated && remembered) {
             try {
               const res = await login({
@@ -142,11 +161,8 @@ export default function App() {
         masterPassword: remember && protectWithMaster ? masterPassword : undefined,
         idioma: "V",
       });
-      if (remember) {
-        saveRememberedLogin({ username, password, remember: true });
-      } else {
-        clearRememberedLogin();
-      }
+      if (remember) saveRememberedLogin({ username, password, remember: true });
+      else clearRememberedLogin();
       setSession(res.session);
       setDashboard(res.dashboard);
     } catch (err) {
@@ -187,6 +203,7 @@ export default function App() {
       setMasterPassword("");
       setUnlockPassword("");
       setShowLive(true);
+      setStructureJson(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'han pogut oblidar");
     } finally {
@@ -207,13 +224,27 @@ export default function App() {
     }
   }
 
+  async function onAdminScrape() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await adminScrape();
+      setDashboard(res.dashboard);
+      setSession(res.session);
+      setStructureJson(JSON.stringify({ structure: res.structure, captures: res.captures }, null, 2));
+      setShowAdmin(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error de scrape admin");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (booting) {
     return (
       <main className="gate">
         <div className="gate-inner">
-          <h1 className="brand">
-            Pont<em>.</em>
-          </h1>
+          <Brand />
           <p className="lede">Obrint sessió desada…</p>
         </div>
       </main>
@@ -227,20 +258,17 @@ export default function App() {
     const hasDeviceVault = Boolean(
       session?.hasStoredCredentials && session.vaultMode === "device",
     );
-
     return (
       <main className="gate">
         <div className="gate-inner">
-          <h1 className="brand">
-            Pont<em>.</em>
-          </h1>
+          <Brand />
           <p className="lede">
-            Una capa clara sobre Web Família: el mateix compte oficial, menys fricció,
-            millor lectura al mòbil i a l'escriptori.
+            La mateixa Web Família oficial, pensada per al mòbil: menys fricció i millor
+            lectura.
           </p>
           <div className="gate-actions">
             <button type="button" className="secondary" disabled={busy} onClick={onMock}>
-              Provar amb dades d'exemple
+              Provar amb dades d&apos;exemple
             </button>
             <button
               type="button"
@@ -251,12 +279,11 @@ export default function App() {
               {session?.hasStoredCredentials ? "Canviar d'usuari" : "Entrar amb el meu usuari"}
             </button>
           </div>
-
           {needsMaster && (
             <form className="panel" onSubmit={onUnlock}>
               <p className="hint">
                 Credencials desades per <strong>{session?.username}</strong>. Introdueix la
-                contrasenya mestra per entrar sense tornar a posar el NIF.
+                contrasenya mestra.
               </p>
               <label>
                 Contrasenya mestra
@@ -270,20 +297,17 @@ export default function App() {
                 />
               </label>
               <div className="gate-actions">
-                <button type="submit" disabled={busy}>
-                  Entrar
-                </button>
+                <button type="submit" disabled={busy}>Entrar</button>
                 <button type="button" className="ghost" disabled={busy} onClick={onForget}>
                   Oblidar aquest dispositiu
                 </button>
               </div>
             </form>
           )}
-
           {hasDeviceVault && !needsMaster && (
             <div className="panel">
               <p className="hint">
-                Hi ha un compte desat ({session?.username}). Si l'auto-entrada ha fallat,
+                Hi ha un compte desat ({session?.username}). Si l&apos;auto-entrada ha fallat,
                 pots reintentar o esborrar-lo.
               </p>
               <div className="gate-actions">
@@ -296,7 +320,6 @@ export default function App() {
               </div>
             </div>
           )}
-
           {showLive && (
             <form className="panel" onSubmit={onLogin}>
               <div className="row two">
@@ -326,7 +349,7 @@ export default function App() {
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
                 />
-                Recordar en aquest dispositiu (no cal tornar a escriure NIF/contrasenya)
+                Recordar en aquest dispositiu
               </label>
               {remember && (
                 <label className="check">
@@ -352,13 +375,12 @@ export default function App() {
                 </label>
               )}
               <p className="hint">
-                Es desa al navegador i, si hi ha <code>DATABASE_URL</code> (Postgres),
-                també al servidor entre redeploys.
+                Es desa al navegador i, si hi ha <code>DATABASE_URL</code>, també al servidor.
               </p>
               {session?.storage && !session.storage.persistent && (
                 <p className="error" role="status">
-                  Aquest servidor encara no té Postgres. El recordatori del navegador
-                  sí funcionarà en aquest dispositiu.
+                  Aquest servidor encara no té Postgres. El recordatori del navegador sí
+                  funcionarà.
                 </p>
               )}
               <button type="submit" disabled={busy}>
@@ -369,15 +391,6 @@ export default function App() {
           {error && (
             <p className="error" role="alert">
               {error}
-            </p>
-          )}
-          {showLive && !error && (
-            <p className="hint">
-              Si falla l&apos;entrada, assegura&apos;t que el mateix usuari funciona a{" "}
-              <a href="https://familia.edu.gva.es" target="_blank" rel="noreferrer">
-                familia.edu.gva.es
-              </a>{" "}
-              (i que has acceptat la LOPD al portal oficial almenys un cop).
             </p>
           )}
         </div>
@@ -391,27 +404,34 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>Pont.</h1>
-          <p>
-            {student ? student.name : "Sense alumne"}
-            {student?.course ? ` · ${student.course}` : ""}
-          </p>
-          <p className={`status-dot ${dashboard.source}`}>
-            <i aria-hidden="true" />
-            {dashboard.source === "mock" ? "Mode exemple" : "Sessió en viu"} ·{" "}
-            {new Date(dashboard.capturedAt).toLocaleString("ca-ES")}
-          </p>
+        <div className="topbar-brand">
+          <img src="/webfamilia-logo.png" alt="" width={44} height={44} />
+          <div>
+            <h1>WebFamilia</h1>
+            <p>
+              {student ? student.name : "Sense alumne"}
+              {student?.course ? ` · ${student.course}` : ""}
+            </p>
+            <p className={`status-dot ${dashboard.source}`}>
+              <i aria-hidden="true" />
+              {dashboard.source === "mock" ? "Exemple" : "En viu"} ·{" "}
+              {new Date(dashboard.capturedAt).toLocaleString("ca-ES")}
+            </p>
+          </div>
         </div>
-        <div className="gate-actions">
+        <div className="topbar-actions">
           <button type="button" className="ghost" disabled={busy} onClick={refresh}>
-            Actualitzar
+            Act.
           </button>
-          {session?.hasStoredCredentials && (
-            <button type="button" className="ghost" disabled={busy} onClick={onForget}>
-              Oblidar login
-            </button>
-          )}
+          <button
+            type="button"
+            className="ghost"
+            disabled={busy || dashboard.source !== "live"}
+            onClick={onAdminScrape}
+            title="Rescanejar estructura"
+          >
+            Admin
+          </button>
         </div>
       </header>
       {dashboard.students.length > 1 && (
@@ -423,7 +443,7 @@ export default function App() {
               className={s.id === student?.id ? "active" : ""}
               onClick={() => setStudentId(s.id)}
             >
-              {s.name}
+              {s.name.split(" ")[0]}
             </button>
           ))}
         </div>
@@ -436,6 +456,19 @@ export default function App() {
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
           >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      <nav className="tabbar" aria-label="Seccions mòbil">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+          >
+            <span className="icon" aria-hidden="true">{t.icon}</span>
             {t.label}
           </button>
         ))}
@@ -454,7 +487,6 @@ export default function App() {
                 <strong>{n.title}</strong>
                 <div className="meta">
                   {n.date && <span>{n.date}</span>}
-                  {n.author && <span>{n.author}</span>}
                   {n.unread && <span className="pill warn">Nou</span>}
                 </div>
                 <p>{n.body}</p>
@@ -475,9 +507,7 @@ export default function App() {
                   <span className={`pill ${a.kind === "retard" ? "warn" : "danger"}`}>
                     {a.kind}
                   </span>
-                  {a.justified && <span className="pill ok">justificada</span>}
                 </div>
-                {a.comment && <p>{a.comment}</p>}
               </article>
             ))}
           </div>
@@ -488,8 +518,9 @@ export default function App() {
           title="Notes i assignatures"
           count={dashboard.grades.length + (dashboard.subjects?.length ?? 0)}
         >
-          {dashboard.grades.length === 0 &&
-            !(dashboard.subjects?.length) && <Empty diagnostics={dashboard.diagnostics} />}
+          {dashboard.grades.length === 0 && !(dashboard.subjects?.length) && (
+            <Empty diagnostics={dashboard.diagnostics} />
+          )}
           <div className="list">
             {dashboard.grades.map((g, i) => (
               <article className="item" key={g.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -498,7 +529,6 @@ export default function App() {
                   {g.evaluation && <span>{g.evaluation}</span>}
                   <span className="pill ok">{g.value}</span>
                 </div>
-                {g.comment && <p>{g.comment}</p>}
               </article>
             ))}
             {(dashboard.subjects ?? []).map((s, i) => (
@@ -523,9 +553,7 @@ export default function App() {
                 <div className="meta">
                   <span>{m.from}</span>
                   {m.date && <span>{m.date}</span>}
-                  {m.unread && <span className="pill warn">Nou</span>}
                 </div>
-                {m.preview && <p>{m.preview}</p>}
               </article>
             ))}
           </div>
@@ -538,11 +566,7 @@ export default function App() {
             {dashboard.activities.map((a, i) => (
               <article className="item" key={a.id} style={{ animationDelay: `${i * 40}ms` }}>
                 <strong>{a.title}</strong>
-                <div className="meta">
-                  {a.date && <span>{a.date}</span>}
-                  {a.place && <span>{a.place}</span>}
-                </div>
-                {a.description && <p>{a.description}</p>}
+                <div className="meta">{a.date && <span>{a.date}</span>}</div>
               </article>
             ))}
           </div>
@@ -569,6 +593,28 @@ export default function App() {
           </div>
         </Section>
       )}
+      <div className="admin-panel">
+        <button
+          type="button"
+          className="ghost"
+          disabled={busy || dashboard.source !== "live"}
+          onClick={() => {
+            setShowAdmin((v) => !v);
+            if (!structureJson && dashboard.source === "live") void onAdminScrape();
+          }}
+        >
+          {showAdmin ? "Amagar admin" : "Admin · Rescanejar estructura"}
+        </button>
+        {session?.hasStoredCredentials && (
+          <button type="button" className="ghost" disabled={busy} onClick={onForget}>
+            Oblidar login
+          </button>
+        )}
+        {showAdmin && structureJson && <pre>{structureJson}</pre>}
+        {showAdmin && !structureJson && (
+          <p className="hint">Prem Admin per capturar l&apos;estructura HTML en viu.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -596,26 +642,23 @@ function Section({
 function Empty({ diagnostics }: { diagnostics?: Dashboard["diagnostics"] }) {
   return (
     <div className="empty">
-      <p>
-        Encara no hi ha dades parsejades aquí. El pont ha entrat, però no ha sabut
-        extreure files d&apos;aquesta secció.
-      </p>
+      <p>Encara no hi ha dades parsejades aquí.</p>
       {diagnostics?.note && <p>{diagnostics.note}</p>}
       {diagnostics?.pages?.length ? (
         <p className="hint">
-          Pàgines capturades:{" "}
+          Pàgines:{" "}
           {diagnostics.pages
             .slice(0, 8)
-            .map((p) => `${p.key}${p.title ? ` (${p.title})` : ""}`)
+            .map((p) => p.key)
             .join(" · ")}
         </p>
       ) : null}
       {diagnostics?.scrapeErrors?.length ? (
-        <p className="hint">Errors de scrape: {diagnostics.scrapeErrors.slice(0, 3).join(" · ")}</p>
+        <p className="hint">Errors: {diagnostics.scrapeErrors.slice(0, 3).join(" · ")}</p>
       ) : null}
       <p className="hint">
-        Obri <a href="/api/debug/captures">/api/debug/captures</a> per veure les claus HTML
-        capturades.
+        Usa <strong>Admin · Rescanejar</strong> o mira{" "}
+        <a href="/api/admin/structure">/api/admin/structure</a>.
       </p>
     </div>
   );

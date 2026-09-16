@@ -1,6 +1,6 @@
-# Pont · puente personal a Web Família
+# WebFamilia · capa clara sobre Web Família
 
-Web Família (GVA / ITACA) funciona, pero la UI es hostil. **Pont** es un puente local:
+Web Família (GVA / ITACA) funciona, pero la UI es hostil. **WebFamilia** es una capa local:
 
 1. inicia sesión en `familia.edu.gva.es` con tu usuario oficial
 2. reinterpreta el HTML en JSON limpio

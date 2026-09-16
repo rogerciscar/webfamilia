@@ -21,11 +21,23 @@ function jarToHeader(jar: CookieJar, url: string) {
 
 async function storeSetCookies(jar: CookieJar, url: string, headers: Headers) {
   const raw = headers.getSetCookie?.() ?? [];
-  for (const cookie of raw) {
+  if (raw.length) {
+    for (const cookie of raw) {
+      try {
+        await jar.setCookie(cookie, url);
+      } catch {
+        // ignore malformed cookies
+      }
+    }
+    return;
+  }
+  // Fallback for runtimes that collapse Set-Cookie
+  const single = headers.get("set-cookie");
+  if (single) {
     try {
-      await jar.setCookie(cookie, url);
+      await jar.setCookie(single, url);
     } catch {
-      // ignore malformed cookies
+      // ignore
     }
   }
 }
@@ -40,6 +52,7 @@ export class WebFamiliaClient {
   lastHtml = "";
   lastUrl = "";
   username = "";
+  referer = WF_LOGIN;
 
   async login(username: string, password: string, idioma: "V" | "C" = "V") {
     this.username = username.trim().toUpperCase();
@@ -76,6 +89,7 @@ export class WebFamiliaClient {
       const html = await readHtml(res);
       this.lastHtml = html;
       this.lastUrl = WF_MAIN;
+      this.referer = WF_MAIN;
       page = {
         url: WF_MAIN,
         status: res.status,
@@ -87,13 +101,11 @@ export class WebFamiliaClient {
       throw new Error(loginErrorMessage(page.html));
     }
     if (isLopdPage(page.html)) {
-      // Best-effort accept; if it fails we still keep the session page.
       page = await this.acceptLopdIfPresent(page);
     }
     if (isLoginFailure(page)) {
       throw new Error(loginErrorMessage(page.html));
     }
-    // Real home after login is listar_alumnos_wf (not main_wf).
     if (!/listar_alumnos_wf|imc-alumno-nombre|imc-alumnos/i.test(page.html)) {
       try {
         const home = await this.get("listar_alumnos_wf", { allowLoginPage: true });
@@ -155,33 +167,48 @@ export class WebFamiliaClient {
 
   async get(
     pathOrUrl: string,
-    opts: { allowLoginPage?: boolean } = {},
+    opts: { allowLoginPage?: boolean; ajax?: boolean } = {},
   ): Promise<FetchResult> {
-    const url = pathOrUrl.startsWith("http")
+    let url = pathOrUrl.startsWith("http")
       ? pathOrUrl
       : `${WF_BASE}/myitaca/${pathOrUrl.replace(/^\//, "")}`;
-    const res = await fetch(url, {
-      redirect: "follow",
-      headers: {
+    let page: FetchResult | null = null;
+    for (let hop = 0; hop < 8; hop++) {
+      const headers: Record<string, string> = {
         cookie: jarToHeader(this.jar, url),
         "user-agent": BROWSER_UA,
-        accept: "text/html,application/xhtml+xml",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "accept-language": "ca-ES,ca;q=0.9,es;q=0.8",
-      },
-    });
-    await storeSetCookies(this.jar, url, res.headers);
-    const html = await readHtml(res);
-    this.lastHtml = html;
-    this.lastUrl = res.url;
-    if (!opts.allowLoginPage && isLoginFailure({ url: res.url, html })) {
+        referer: this.referer || WF_LOGIN,
+        origin: "https://familia.edu.gva.es",
+      };
+      if (opts.ajax !== false && /alumno_|listar_alumnos|centro_|reportar_/i.test(url)) {
+        headers["x-requested-with"] = "XMLHttpRequest";
+      }
+      const res = await fetch(url, { redirect: "manual", headers });
+      await storeSetCookies(this.jar, url, res.headers);
+      const location = res.headers.get("location");
+      if (location && res.status >= 300 && res.status < 400) {
+        url = new URL(location, url).toString();
+        continue;
+      }
+      const html = await readHtml(res);
+      this.lastHtml = html;
+      this.lastUrl = res.url || url;
+      this.referer = this.lastUrl;
+      page = {
+        url: this.lastUrl,
+        status: res.status,
+        html,
+        title: cheerio.load(html)("title").text().trim(),
+      };
+      break;
+    }
+    if (!page) throw new Error("No s'ha pogut carregar la pàgina de Web Família.");
+    if (!opts.allowLoginPage && isLoginFailure({ url: page.url, html: page.html })) {
       throw new Error("Sessió caducada o no autenticada.");
     }
-    return {
-      url: res.url,
-      status: res.status,
-      html,
-      title: cheerio.load(html)("title").text().trim(),
-    };
+    return page;
   }
 
   isAuthenticated() {

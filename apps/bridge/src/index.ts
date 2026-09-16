@@ -13,7 +13,9 @@ import {
   getCaptures,
   getDashboard,
   getStatus,
+  getStructureReport,
   loginLive,
+  rescanLive,
   tryAutoLogin,
   unlockAndLogin,
   useMock,
@@ -55,7 +57,7 @@ app.use(
 app.get("/api/health", (c) =>
   c.json({
     ok: true,
-    service: "pont-bridge",
+    service: "webfamilia-app",
     web: Boolean(webRootAbs),
     webRoot: webRootAbs,
     storage: getStorageInfo(),
@@ -150,6 +152,22 @@ app.get("/api/debug/captures/:key", (c) => {
   return c.html(html);
 });
 
+app.get("/api/admin/structure", (c) => {
+  const structure = getStructureReport();
+  if (!structure) return c.json({ ok: false, error: "Encara no hi ha estructura. Fes login o Rescanejar." }, 404);
+  return c.json({ ok: true, structure, captures: getCaptures() });
+});
+
+app.post("/api/admin/scrape", async (c) => {
+  try {
+    const result = await rescanLive();
+    return c.json({ ok: true, ...result, session: await getStatus() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Error de scrape";
+    return c.json({ ok: false, error: message }, 400);
+  }
+});
+
 if (webRootAbs && webRootRel) {
   app.use("/*", serveStatic({ root: webRootRel }));
   app.get("*", async (c) => {
@@ -173,6 +191,6 @@ if (webRootAbs && webRootRel) {
 }
 
 console.log(
-  `Pont listening on 0.0.0.0:${port} · web=${webRootAbs ?? "MISSING"}`,
+  `WebFamilia listening on 0.0.0.0:${port} · web=${webRootAbs ?? "MISSING"}`,
 );
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });

@@ -23,12 +23,12 @@ import {
   saveCredentials,
   vaultExists,
 } from "./vault";
+import { analyzePages, type StructureReport } from "./structure";
 import * as cheerio from "cheerio";
 
 const BOOT_PATHS = [
   "listar_alumnos_wf",
   "main_wf",
-  "alumno_avisos_wf?tipo=cm&cargado=true",
 ];
 
 type RuntimeState = {
@@ -38,6 +38,7 @@ type RuntimeState = {
   lastError?: string;
   lastDashboard?: Dashboard;
   captures: Record<string, string>;
+  structure: StructureReport | null;
   autoLoginPromise?: Promise<Dashboard | null>;
 };
 
@@ -45,6 +46,7 @@ const state: RuntimeState = {
   mode: "mock",
   client: null,
   captures: {},
+  structure: null,
 };
 
 export async function getStatus(): Promise<SessionStatus> {
@@ -180,6 +182,7 @@ export async function forgetCredentials() {
   state.lastLoginAt = undefined;
   state.lastError = undefined;
   state.captures = {};
+  state.structure = null;
 }
 
 export async function getDashboard(): Promise<Dashboard> {
@@ -207,10 +210,24 @@ export function getCaptureHtml(key: string) {
   return html ? redactSensitive(html) : null;
 }
 
+export function getStructureReport() {
+  return state.structure;
+}
+
+/** Force a live rescan and return dashboard + structure for admin UI. */
+export async function rescanLive() {
+  if (!state.client?.isAuthenticated()) {
+    throw new Error("Cal una sessió en viu per rescannejar.");
+  }
+  const dashboard = await buildDashboard(state.client);
+  return { dashboard, structure: state.structure, captures: getCaptures() };
+}
+
 async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   const pages: Record<string, string> = {};
   const scrapeErrors: string[] = [];
   state.captures = {};
+  state.structure = null;
 
   const store = (key: string, html: string) => {
     pages[key] = html;
@@ -219,10 +236,9 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
 
   if (client.lastHtml) store("main", client.lastHtml);
 
-  // Always land on the real home: listar_alumnos_wf
   for (const boot of BOOT_PATHS) {
     try {
-      const page = await client.get(boot);
+      const page = await client.get(boot, { ajax: false });
       if (/login_wf/i.test(page.url)) {
         scrapeErrors.push(`${boot}: redirect login`);
         continue;
@@ -230,9 +246,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       store(captureKey(boot), page.html);
       if (/listar_alumnos_wf|imc-alumno-nombre|imc-alumnos/i.test(page.html)) break;
     } catch (err) {
-      scrapeErrors.push(
-        `${boot}: ${err instanceof Error ? err.message : "error"}`,
-      );
+      scrapeErrors.push(`${boot}: ${err instanceof Error ? err.message : "error"}`);
     }
   }
 
@@ -246,7 +260,17 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   const matriculas = parseMatriculaLinks(homeHtml);
   const nav = extractNavLinks(homeHtml);
 
-  // Prefer first student's matriculas; also scrape siblings lightly
+  for (const student of students.slice(0, 3)) {
+    try {
+      const datos = await client.get(`alumno_datos_wf?alumno_id=${student.id}`);
+      if (!/login_wf/i.test(datos.url)) store(`alumno_datos_${student.id}`, datos.html);
+    } catch (err) {
+      scrapeErrors.push(
+        `alumno_datos_${student.id}: ${err instanceof Error ? err.message : "error"}`,
+      );
+    }
+  }
+
   const matriculaTargets = matriculas.length
     ? matriculas
     : students.flatMap((s) =>
@@ -264,14 +288,17 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
 
   for (const mat of matriculaTargets.slice(0, 4)) {
     try {
-      const page = await client.get(mat.href);
+      const matHref =
+        mat.matriculaId
+          ? `alumno_matricula_wf?alumno_id=${mat.alumnoId}&matricula_id=${mat.matriculaId}`
+          : mat.href;
+      const page = await client.get(matHref);
       if (/login_wf/i.test(page.url)) {
-        scrapeErrors.push(`${mat.href}: redirect login`);
+        scrapeErrors.push(`${matHref}: redirect login`);
         continue;
       }
-      store(captureKey(mat.href), page.html);
+      store(captureKey(matHref), page.html);
       const sections = parseSectionTargets(page.html);
-      // Known section shortcuts if matricula HTML is already composed (browser dump)
       const extras = [
         ...sections.map((s) => s.href),
         `alumno_avisos_wf?tipo=ag&alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
@@ -282,26 +309,28 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
         `alumno_materias_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
         `alumno_horarios_wf?alumno_id=${mat.alumnoId}${mat.matriculaId ? `&matricula_id=${mat.matriculaId}` : ""}`,
       ];
-      for (const href of unique(extras).slice(0, 16)) {
+      for (const href of unique(extras).slice(0, 18)) {
         if (!href || pages[captureKey(href)]) continue;
         try {
           const sub = await client.get(href);
           if (/login_wf/i.test(sub.url)) continue;
-          store(captureKey(href), sub.html);
-        } catch (err) {
-          scrapeErrors.push(
-            `${href}: ${err instanceof Error ? err.message : "error"}`,
+          const $ = cheerio.load(sub.html);
+          const fragment = $(".imc-contenido").first().html();
+          store(
+            captureKey(href),
+            fragment ? `<div class="imc-contenido">${fragment}</div>${sub.html}` : sub.html,
           );
+        } catch (err) {
+          scrapeErrors.push(`${href}: ${err instanceof Error ? err.message : "error"}`);
         }
       }
     } catch (err) {
-      scrapeErrors.push(
-        `${mat.href}: ${err instanceof Error ? err.message : "error"}`,
-      );
+      scrapeErrors.push(`${mat.href}: ${err instanceof Error ? err.message : "error"}`);
     }
   }
 
-  // If home already has composed desktop HTML (like the user paste), parse it directly
+  state.structure = analyzePages(pages);
+
   const notices = mergeUnique(
     pickBest(pages, parseNotices, /agenda|avis|aviso/i),
     parseNotices(homeHtml),
@@ -357,7 +386,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
         schedule.length +
         subjects.length ===
       0
-        ? "S'ha capturat HTML però els parsers no han trobat files. Mira /api/debug/captures"
+        ? "S'ha capturat HTML però els parsers no han trobat files. Usa Admin → Rescanejar."
         : undefined,
   };
 
