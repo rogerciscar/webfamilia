@@ -304,7 +304,7 @@ export function fetchStructure() {
 
 export async function uploadStudentPhoto(studentId: string, file: File) {
   const body = new FormData();
-  body.append("file", file);
+  body.append("file", file, file.name || "carnet.jpg");
   const res = await fetch(`/api/students/${encodeURIComponent(studentId)}/photo`, {
     method: "POST",
     credentials: "include",

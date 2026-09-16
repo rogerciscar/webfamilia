@@ -612,6 +612,72 @@ label {
   width: auto;
   font-size: 0.8rem;
 }
+.data-table.dense .time strong {
+  font-size: 0.82rem;
+}
+.data-table.dense .pill {
+  font-size: 0.75rem;
+}
+.menu-variant {
+  margin-top: 0.75rem;
+}
+.menu-variant-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--brand-deep);
+}
+button.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: auto;
+  border-radius: 0;
+  color: var(--brand-deep);
+  text-decoration: underline;
+  font-weight: 600;
+}
+button.linkish:hover { transform: none; opacity: 0.85; }
+.pdf-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: stretch;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+  padding: calc(0.5rem + var(--safe-top)) 0.5rem calc(0.5rem + var(--safe-bottom));
+}
+.pdf-panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  background: var(--paper);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px color-mix(in srgb, var(--ink) 30%, transparent);
+}
+.pdf-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, white 80%, var(--mist));
+}
+.pdf-toolbar strong {
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdf-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 70vh;
+  border: 0;
+  background: #525659;
+}
 .pill {
   display: inline-flex;
   align-items: center;

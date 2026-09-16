@@ -309,17 +309,18 @@ app.post("/api/students/:id/photo", async (c) => {
   if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   try {
     const studentId = c.req.param("id");
-    const body = await c.req.parseBody();
-    const file = body.file ?? body.photo;
-    if (!file || typeof file === "string") {
+    const form = await c.req.formData();
+    const entry = form.get("file") ?? form.get("photo");
+    if (!entry || typeof entry === "string") {
       return c.json({ ok: false, error: "Cal una imatge (camp file)." }, 400);
     }
-    const buf = Buffer.from(await file.arrayBuffer());
-    const mime = file.type || "image/jpeg";
-    await saveStudentPhoto({ studentId, buffer: buf, mime });
-    const dashboard = await getDashboard();
+    const buf = Buffer.from(await entry.arrayBuffer());
+    const mime = ("type" in entry && entry.type) || "image/jpeg";
+    await saveStudentPhoto({ studentId, buffer: buf, mime: String(mime) });
+    const dashboard = await getDashboard({ refresh: false });
     return c.json({ ok: true, dashboard });
   } catch (error) {
+    console.error("[photos] upload failed:", error);
     return c.json({ ok: false, error: errorMessage(error) }, 400);
   }
 });

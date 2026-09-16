@@ -21,6 +21,7 @@ import {
   saveRememberedLogin,
 } from "./remember";
 import { PhotoCropper } from "./PhotoCropper";
+import { PdfViewer } from "./PdfViewer";
 import {
   dinnerAgendaNotices,
   menuSlotsForDay,
@@ -49,7 +50,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.2";
+const APP_VERSION = "0.2.3";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -118,6 +119,8 @@ export default function App() {
   const [scheduleDay, setScheduleDay] = useState<string>(() => todayWeekday());
   const [slotForm, setSlotForm] = useState({ subject: "", start: "18:00", end: "19:00" });
   const [cropFile, setCropFile] = useState<File | null>(null);
+  const [pdfView, setPdfView] = useState<{ url: string; title: string } | null>(null);
+  const [photoTick, setPhotoTick] = useState(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   function revealApp(dash: Dashboard, nextSession?: SessionStatus) {
@@ -283,6 +286,7 @@ export default function App() {
       const file = new File([blob], "carnet.jpg", { type: "image/jpeg" });
       const res = await uploadStudentPhoto(studentId, file);
       setDashboard(res.dashboard);
+      setPhotoTick(Date.now());
       setCropFile(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut pujar la foto");
@@ -298,11 +302,16 @@ export default function App() {
     try {
       const res = await removeStudentPhoto(studentId);
       setDashboard(res.dashboard);
+      setPhotoTick(Date.now());
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut treure la foto");
     } finally {
       setBusy(false);
     }
+  }
+
+  function openPdf(url: string, title: string) {
+    setPdfView({ url, title });
   }
 
   if (booting || entering) {
@@ -513,6 +522,13 @@ export default function App() {
           onConfirm={(blob) => void onConfirmCrop(blob)}
         />
       )}
+      {pdfView && (
+        <PdfViewer
+          url={pdfView.url}
+          title={pdfView.title}
+          onClose={() => setPdfView(null)}
+        />
+      )}
       <div className="sticky-chrome">
       <header className="topbar">
         <div className="topbar-main">
@@ -526,7 +542,7 @@ export default function App() {
           >
             {student?.photoUrl || student?.hasPhoto ? (
               <img
-                src={`${student.photoUrl || `/api/students/${student.id}/photo`}?t=${dashboard.capturedAt}`}
+                src={`${student.photoUrl || `/api/students/${student.id}/photo`}?t=${photoTick || dashboard.capturedAt}`}
                 alt=""
                 className="avatar-img"
               />
@@ -586,7 +602,7 @@ export default function App() {
             const info = dashboard.diagnostics?.scrapedStudents?.find((x) => x.id === s.id);
             const photoSrc =
               s.photoUrl || s.hasPhoto
-                ? `${s.photoUrl || `/api/students/${s.id}/photo`}?t=${dashboard.capturedAt}`
+                ? `${s.photoUrl || `/api/students/${s.id}/photo`}?t=${photoTick || dashboard.capturedAt}`
                 : null;
             return (
             <button
@@ -662,9 +678,13 @@ export default function App() {
                         {(n.attachments?.length ?? 0) > 0
                           ? n.attachments!.map((a) => (
                               <div key={a.id}>
-                                <a href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer">
+                                <button
+                                  type="button"
+                                  className="linkish"
+                                  onClick={() => openPdf(`/api/attachments/${a.id}`, a.filename)}
+                                >
                                   {a.filename}
-                                </a>
+                                </button>
                               </div>
                             ))
                           : "—"}
@@ -834,42 +854,59 @@ export default function App() {
                     {menu.attachmentId ? (
                       <>
                         {" · "}
-                        <a href={`/api/attachments/${menu.attachmentId}`} target="_blank" rel="noreferrer">
+                        <button
+                          type="button"
+                          className="linkish"
+                          onClick={() =>
+                            openPdf(`/api/attachments/${menu.attachmentId}`, menu.sourceFile)
+                          }
+                        >
                           PDF
-                        </a>
+                        </button>
                       </>
                     ) : null}
                   </p>
-                  {(menu.variants[0]?.days ?? []).length > 0 && (
-                    <div className="table-scroll">
-                      <table className="data-table dense">
-                        <thead>
-                          <tr>
-                            <th scope="col">Data</th>
-                            <th scope="col">Dia</th>
-                            <th scope="col">Plats</th>
-                            <th scope="col">A</th>
-                            <th scope="col">Postre</th>
-                            <th scope="col">Kcal</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {menu.variants[0].days.slice(0, 31).map((d) => (
-                            <tr key={d.date}>
-                              <td className="time">{d.date.slice(5)}</td>
-                              <td className="cell-soft">{(d.weekday || "").slice(0, 3)}</td>
-                              <td className="cell-main" title={d.courses.join(" · ")}>
-                                {d.courses.join(" · ") || "—"}
-                              </td>
-                              <td>{d.saladCode || "—"}</td>
-                              <td className="cell-soft">{d.dessert || "—"}</td>
-                              <td className="time">{d.nutrition?.kcal ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  {menu.variants.map((variant) => (
+                    <div key={variant.name} className="menu-variant">
+                      <h4 className="menu-variant-title">
+                        {/nits|complementari|sopar|cena/i.test(variant.name)
+                          ? `${variant.name} · 20:00–20:30`
+                          : `${variant.name} · 12:45–13:15`}
+                      </h4>
+                      {(variant.days ?? []).length === 0 ? (
+                        <Empty message="Sense dies en aquesta proposta." />
+                      ) : (
+                        <div className="table-scroll">
+                          <table className="data-table dense">
+                            <thead>
+                              <tr>
+                                <th scope="col">Data</th>
+                                <th scope="col">Dia</th>
+                                <th scope="col">Plats</th>
+                                <th scope="col">A</th>
+                                <th scope="col">Postre</th>
+                                <th scope="col">Kcal</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {variant.days.slice(0, 31).map((d) => (
+                                <tr key={`${variant.name}-${d.date}`}>
+                                  <td className="time">{d.date.slice(5)}</td>
+                                  <td className="cell-soft">{(d.weekday || "").slice(0, 3)}</td>
+                                  <td className="cell-main" title={d.courses.join(" · ")}>
+                                    {d.courses.join(" · ") || "—"}
+                                  </td>
+                                  <td>{d.saladCode || "—"}</td>
+                                  <td className="cell-soft">{d.dessert || "—"}</td>
+                                  <td className="time">{d.nutrition?.kcal ?? "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  ))}
                 </div>
               ))}
             </div>
@@ -893,7 +930,7 @@ export default function App() {
           {daySlots.length === 0 && <Empty message="Cap classe aquest dia." />}
           {daySlots.length > 0 && (
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table dense">
                 <thead>
                   <tr>
                     <th scope="col">Hora</th>
@@ -915,9 +952,9 @@ export default function App() {
                     <tr key={h.id} className={rowClass}>
                       <th className="time" scope="row">
                         <strong>{h.start || "—"}</strong>
-                        {h.end ? <span> – {h.end}</span> : null}
+                        {h.end ? <span>–{h.end}</span> : null}
                       </th>
-                      <td className="cell-main">
+                      <td className="cell-main" title={h.subject}>
                         {h.subject}
                         {h.custom ? <span className="pill custom"> Propi</span> : null}
                         {menuKind === "lunch" ? <span className="pill ok"> Dinar</span> : null}
