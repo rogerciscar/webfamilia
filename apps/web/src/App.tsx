@@ -55,12 +55,10 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [booting, setBooting] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showLive, setShowLive] = useState(false);
+  const [changeUser, setChangeUser] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
-  const [protectWithMaster, setProtectWithMaster] = useState(false);
-  const [masterPassword, setMasterPassword] = useState("");
   const [unlockPassword, setUnlockPassword] = useState("");
   const [studentId, setStudentId] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -73,19 +71,16 @@ export default function App() {
         const remembered = loadRememberedLogin();
         if (remembered) {
           setUsername(remembered.username);
-          if (remembered.password) setPassword(remembered.password);
           setRemember(true);
-          setShowLive(true);
         }
         const status = await fetchSession();
         if (cancelled) return;
         setSession(status);
-        // Only show dashboard if this browser has a valid session cookie
         if (status.authenticated && status.dashboard) {
           setDashboard(status.dashboard);
           return;
         }
-        if (status.hasStoredCredentials) setShowLive(true);
+        if (status.username && !remembered) setUsername(status.username);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Error de sessió");
       } finally {
@@ -129,14 +124,14 @@ export default function App() {
         username,
         password,
         remember,
-        protectWithMaster: remember && protectWithMaster,
-        masterPassword: remember && protectWithMaster ? masterPassword : undefined,
+        protectWithMaster: false,
         idioma: "V",
       });
       if (remember) saveRememberedLogin({ username, keepPassword: false });
       else clearRememberedLogin();
       setSession(res.session);
       setDashboard(res.dashboard);
+      setChangeUser(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error de login");
     } finally {
@@ -167,7 +162,7 @@ export default function App() {
       await doUnlock({ master: unlockPassword });
       return;
     }
-    await doUnlock({ password: unlockPassword || password });
+    await doUnlock({ password: unlockPassword });
   }
 
   async function onForget() {
@@ -179,9 +174,8 @@ export default function App() {
       setSession(res.session);
       setDashboard(null);
       setPassword("");
-      setMasterPassword("");
       setUnlockPassword("");
-      setShowLive(true);
+      setChangeUser(true);
       setStructureJson(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'han pogut oblidar");
@@ -245,156 +239,107 @@ export default function App() {
   }
 
   if (!dashboard) {
-    const needsMaster = Boolean(
-      session?.hasStoredCredentials && session.vaultMode === "master",
-    );
-    const hasDeviceVault = Boolean(
-      session?.hasStoredCredentials && session.vaultMode === "device",
-    );
-    const allowMock = session?.allowMock !== false;
+    const hasSaved = Boolean(session?.hasStoredCredentials);
+    const showUnlock = hasSaved && !changeUser;
+    const allowMock = session?.allowMock === true;
+    const savedName = session?.username || username;
     return (
       <main className="gate">
         <div className="gate-inner">
           <Brand />
-          <p className="lede">
-            La mateixa Web Família oficial, pensada per al mòbil. Cal iniciar sessió en
-            aquest navegador (el servidor pot scrapear amb WF_USER/WF_PASS, però no obre
-            dades sense el teu login).
-          </p>
-          {session?.scrapeReady && (
-            <p className="hint">El servidor ja té un scrape en viu preparat. Entra per veure&apos;l.</p>
-          )}
-          <div className="gate-actions">
-            {allowMock && (
-              <button type="button" className="secondary" disabled={busy} onClick={onMock}>
-                Provar amb dades d&apos;exemple
+          <p className="lede">Web Família, més clara al mòbil.</p>
+          {showUnlock ? (
+            <form className="panel" onSubmit={onUnlock}>
+              <p className="hint">
+                Compte <strong>{savedName}</strong>
+              </p>
+              <label>
+                {session?.vaultMode === "master" ? "Contrasenya mestra" : "Contrasenya"}
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={unlockPassword}
+                  onChange={(e) => setUnlockPassword(e.target.value)}
+                  required
+                  minLength={session?.vaultMode === "master" ? 8 : 1}
+                  autoFocus
+                />
+              </label>
+              <button type="submit" disabled={busy}>
+                Entrar
               </button>
-            )}
-            <button
-              type="button"
-              className="ghost"
-              disabled={busy}
-              onClick={() => setShowLive((v) => !v)}
-            >
-              {session?.hasStoredCredentials ? "Canviar d'usuari" : "Entrar amb el meu usuari"}
-            </button>
-          </div>
-          {needsMaster && (
-            <form className="panel" onSubmit={onUnlock}>
-              <p className="hint">
-                Credencials desades per <strong>{session?.username}</strong>. Introdueix la
-                contrasenya mestra.
-              </p>
-              <label>
-                Contrasenya mestra
-                <input
-                  type="password"
-                  autoComplete="current-password"
-                  value={unlockPassword}
-                  onChange={(e) => setUnlockPassword(e.target.value)}
-                  required
-                  minLength={8}
-                />
-              </label>
               <div className="gate-actions">
-                <button type="submit" disabled={busy}>Entrar</button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setChangeUser(true);
+                    setUnlockPassword("");
+                    setError(null);
+                  }}
+                >
+                  Un altre usuari
+                </button>
                 <button type="button" className="ghost" disabled={busy} onClick={onForget}>
-                  Oblidar aquest dispositiu
+                  Oblidar
                 </button>
               </div>
             </form>
-          )}
-          {hasDeviceVault && !needsMaster && (
-            <form className="panel" onSubmit={onUnlock}>
-              <p className="hint">
-                Compte desat ({session?.username}). Introdueix la contrasenya de Web Família
-                per obrir la sessió en aquest navegador.
-              </p>
-              <label>
-                Contrasenya Web Família
-                <input
-                  type="password"
-                  autoComplete="current-password"
-                  value={unlockPassword}
-                  onChange={(e) => setUnlockPassword(e.target.value)}
-                  required
-                />
-              </label>
-              <div className="gate-actions">
-                <button type="submit" disabled={busy}>Obrir sessió</button>
-                <button type="button" className="ghost" disabled={busy} onClick={onForget}>
-                  Oblidar aquest dispositiu
-                </button>
-              </div>
-            </form>
-          )}
-          {showLive && (
+          ) : (
             <form className="panel" onSubmit={onLogin}>
-              <div className="row two">
-                <label>
-                  Usuari (NIF/NIE)
-                  <input
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    autoComplete="username"
-                    required
-                  />
-                </label>
-                <label>
-                  Contrasenya Web Família
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
-                </label>
-              </div>
+              <label>
+                Usuari (NIF/NIE)
+                <input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  required
+                  autoFocus
+                />
+              </label>
+              <label>
+                Contrasenya
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
               <label className="check">
                 <input
                   type="checkbox"
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
                 />
-                Recordar usuari en aquest navegador
+                Recordar usuari
               </label>
-              {remember && (
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={protectWithMaster}
-                    onChange={(e) => setProtectWithMaster(e.target.checked)}
-                  />
-                  Protegir vault amb contrasenya mestra (opcional)
-                </label>
-              )}
-              {remember && protectWithMaster && (
-                <label>
-                  Contrasenya mestra (mín. 8)
-                  <input
-                    type="password"
-                    value={masterPassword}
-                    onChange={(e) => setMasterPassword(e.target.value)}
-                    autoComplete="new-password"
-                    required
-                    minLength={8}
-                  />
-                </label>
-              )}
-              <p className="hint">
-                La contrasenya no es desa en clar al navegador. El vault del servidor només
-                s&apos;obre amb la teva clau en aquesta sessió.
-              </p>
-              {session?.storage && !session.storage.persistent && (
-                <p className="error" role="status">
-                  Aquest servidor encara no té Postgres. El recordatori d&apos;usuari del
-                  navegador sí funcionarà.
-                </p>
-              )}
               <button type="submit" disabled={busy}>
-                Connectar amb Web Família
+                Entrar
               </button>
+              <div className="gate-actions">
+                {hasSaved && (
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setChangeUser(false);
+                      setPassword("");
+                      setError(null);
+                    }}
+                  >
+                    Tornar
+                  </button>
+                )}
+                {allowMock && (
+                  <button type="button" className="secondary" disabled={busy} onClick={onMock}>
+                    Provar exemple
+                  </button>
+                )}
+              </div>
             </form>
           )}
           {error && (
@@ -817,27 +762,16 @@ export default function App() {
           </button>
         )}
         {showAdmin && (
-          <p className="hint">
-            El servidor ja descarrega agenda, horaris i assignatures de cada alumne
-            en login / Act. / Rescanejar (i amb WF_USER/WF_PASS al arrencar). Canviar
-            de pestanya només filtra. El JSON és diagnòstic.
-          </p>
+          <p className="hint">Torna a demanar les dades a Web Família amb la sessió actual.</p>
         )}
         {showAdmin && (dashboard.diagnostics?.scrapedStudents?.length ?? 0) > 0 && (
           <p className="hint">
-            Scrapejat:{" "}
             {dashboard.diagnostics!.scrapedStudents!
-              .map(
-                (s) =>
-                  `${s.name.split(" ")[0]} (${s.notices} avisos, ${s.schedule} hores, ${s.absences ?? 0} faltes, ${s.menus ?? 0} menús${s.tutorName ? `, tutor ${s.tutorName}` : ""})`,
-              )
+              .map((s) => `${s.name.split(" ")[0]}: ${s.notices} avisos, ${s.schedule} hores`)
               .join(" · ")}
           </p>
         )}
         {showAdmin && structureJson && <pre>{structureJson}</pre>}
-        {showAdmin && !structureJson && (
-          <p className="hint">Prem Admin per capturar l&apos;estructura HTML en viu.</p>
-        )}
       </div>
     </div>
   );
