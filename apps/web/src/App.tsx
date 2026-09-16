@@ -20,6 +20,12 @@ import {
   loadRememberedLogin,
   saveRememberedLogin,
 } from "./remember";
+import { PhotoCropper } from "./PhotoCropper";
+import {
+  dinnerAgendaNotices,
+  menuSlotsForDay,
+  normalizeDay,
+} from "./menu-schedule";
 
 type Tab =
   | "agenda"
@@ -32,18 +38,18 @@ type Tab =
   | "horari";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "horari", label: "Horari" },
+  { id: "assignatures", label: "Assign." },
   { id: "agenda", label: "Agenda" },
   { id: "assistencies", label: "Assist." },
   { id: "activitats", label: "Activ." },
   { id: "comunicacions", label: "Comun." },
   { id: "qualificacions", label: "Notes" },
-  { id: "assignatures", label: "Assign." },
   { id: "menus", label: "Menús" },
-  { id: "horari", label: "Horari" },
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.2.1";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -98,7 +104,7 @@ function Entrance({
 export default function App() {
   const [session, setSession] = useState<SessionStatus | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [tab, setTab] = useState<Tab>("agenda");
+  const [tab, setTab] = useState<Tab>("horari");
   const [busy, setBusy] = useState(false);
   const [booting, setBooting] = useState(true);
   const [entering, setEntering] = useState(false);
@@ -111,6 +117,7 @@ export default function App() {
   const [studentId, setStudentId] = useState<string | null>(null);
   const [scheduleDay, setScheduleDay] = useState<string>(() => todayWeekday());
   const [slotForm, setSlotForm] = useState({ subject: "", start: "18:00", end: "19:00" });
+  const [cropFile, setCropFile] = useState<File | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   function revealApp(dash: Dashboard, nextSession?: SessionStatus) {
@@ -264,16 +271,23 @@ export default function App() {
 
   async function onPickPhoto(file: File | null) {
     if (!file || !studentId) return;
+    setCropFile(file);
+    if (photoInputRef.current) photoInputRef.current.value = "";
+  }
+
+  async function onConfirmCrop(blob: Blob) {
+    if (!studentId) return;
     setBusy(true);
     setError(null);
     try {
+      const file = new File([blob], "carnet.jpg", { type: "image/jpeg" });
       const res = await uploadStudentPhoto(studentId, file);
       setDashboard(res.dashboard);
+      setCropFile(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut pujar la foto");
     } finally {
       setBusy(false);
-      if (photoInputRef.current) photoInputRef.current.value = "";
     }
   }
 
@@ -431,15 +445,23 @@ export default function App() {
     dashboard.students.find((s) => s.id === studentId) ?? dashboard.student ?? null;
 
   const sid = student?.id;
-  const notices = forStudent(dashboard.notices, sid);
+  const attachments = forStudent(dashboard.attachments ?? [], sid);
+  const baseNotices = forStudent(dashboard.notices, sid);
+  const menus = forStudentMenus(dashboard.menus ?? [], sid, attachments, baseNotices);
+  const menuLunchDinner = menuSlotsForDay(menus, scheduleDay, sid);
+  const schedule = [
+    ...forStudent(dashboard.schedule ?? [], sid),
+    ...menuLunchDinner,
+  ];
+  const notices = [
+    ...baseNotices,
+    ...dinnerAgendaNotices(menus, sid),
+  ].sort((a, b) => (a.dateIso || a.date || "").localeCompare(b.dateIso || b.date || ""));
   const absences = forStudent(dashboard.absences, sid);
   const grades = forStudent(dashboard.grades, sid);
   const messages = forStudent(dashboard.messages, sid);
   const activities = forStudent(dashboard.activities, sid);
   const subjects = forStudent(dashboard.subjects ?? [], sid);
-  const schedule = forStudent(dashboard.schedule ?? [], sid);
-  const attachments = forStudent(dashboard.attachments ?? [], sid);
-  const menus = forStudentMenus(dashboard.menus ?? [], sid, attachments, notices);
   const scrapeInfo = dashboard.diagnostics?.scrapedStudents?.find((s) => s.id === sid);
   const daySlots = schedule
     .filter((s) => normalizeDay(s.day) === scheduleDay)
@@ -483,6 +505,14 @@ export default function App() {
 
   return (
     <div className={`app-shell ${entering ? "app-shell-enter" : ""}`}>
+      {cropFile && (
+        <PhotoCropper
+          file={cropFile}
+          busy={busy}
+          onCancel={() => setCropFile(null)}
+          onConfirm={(blob) => void onConfirmCrop(blob)}
+        />
+      )}
       <header className="topbar">
         <div className="topbar-main">
           <button
@@ -866,8 +896,17 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {daySlots.map((h) => (
-                    <tr key={h.id} className={h.custom ? "slot-custom" : undefined}>
+                  {daySlots.map((h) => {
+                    const menuKind = "menuKind" in h ? (h as { menuKind?: string }).menuKind : undefined;
+                    const rowClass = h.custom
+                      ? "slot-custom"
+                      : menuKind === "lunch"
+                        ? "slot-menu-lunch"
+                        : menuKind === "dinner"
+                          ? "slot-menu-dinner"
+                          : undefined;
+                    return (
+                    <tr key={h.id} className={rowClass}>
                       <th className="time" scope="row">
                         <strong>{h.start || "—"}</strong>
                         {h.end ? <span> – {h.end}</span> : null}
@@ -875,6 +914,8 @@ export default function App() {
                       <td className="cell-main">
                         {h.subject}
                         {h.custom ? <span className="pill custom"> Propi</span> : null}
+                        {menuKind === "lunch" ? <span className="pill ok"> Dinar</span> : null}
+                        {menuKind === "dinner" ? <span className="pill warn"> Sopar</span> : null}
                       </td>
                       <td>
                         {h.custom ? (
@@ -889,7 +930,8 @@ export default function App() {
                         ) : null}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -993,14 +1035,4 @@ function Empty({ message }: { message?: string }) {
       <p>{message || "No hi ha dades."}</p>
     </div>
   );
-}
-
-function normalizeDay(day: string) {
-  const d = day.trim().toLowerCase();
-  if (d.startsWith("dil")) return "Dilluns";
-  if (d.startsWith("dima") || d.startsWith("mart")) return "Dimarts";
-  if (d.startsWith("dime") || d.startsWith("mier") || d.startsWith("mié")) return "Dimecres";
-  if (d.startsWith("dij") || d.startsWith("jue")) return "Dijous";
-  if (d.startsWith("div") || d.startsWith("vie")) return "Divendres";
-  return day;
 }

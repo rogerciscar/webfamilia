@@ -351,7 +351,65 @@ label {
 .data-table tr.slot-custom td.cell-main {
   box-shadow: inset 3px 0 0 var(--coral);
 }
+.data-table tr.slot-menu-lunch {
+  background: color-mix(in srgb, var(--sea) 12%, white);
+}
+.data-table tr.slot-menu-lunch th.time,
+.data-table tr.slot-menu-lunch td.cell-main {
+  box-shadow: inset 3px 0 0 var(--sea);
+}
+.data-table tr.slot-menu-dinner {
+  background: color-mix(in srgb, var(--brand) 10%, white);
+}
+.data-table tr.slot-menu-dinner th.time,
+.data-table tr.slot-menu-dinner td.cell-main {
+  box-shadow: inset 3px 0 0 var(--brand-deep);
+}
 .pill.custom::before { background: var(--coral); }
+
+.crop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: calc(1rem + var(--safe-top)) 1rem calc(1rem + var(--safe-bottom));
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+  backdrop-filter: blur(6px);
+}
+.crop-panel {
+  width: min(420px, 100%);
+  background: var(--paper);
+  border-radius: 20px;
+  padding: 1.1rem 1rem 1.2rem;
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--ink) 28%, transparent);
+  animation: rise 280ms ease both;
+}
+.crop-panel h2 {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+.crop-canvas {
+  display: block;
+  margin: 0.85rem auto;
+  border-radius: 18px;
+  cursor: grab;
+  background: #0f2f2c;
+  touch-action: none;
+}
+.crop-canvas:active { cursor: grabbing; }
+.crop-zoom {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0 1rem;
+}
+.crop-zoom input[type="range"] {
+  width: 100%;
+  min-height: auto;
+  padding: 0;
+  accent-color: var(--brand-deep);
+}
 
 .tabs {
   display: none;
