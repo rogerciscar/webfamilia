@@ -7,6 +7,8 @@ export type Student = {
   group?: string;
   enrollmentYear?: string;
   tutorName?: string;
+  photoUrl?: string;
+  hasPhoto?: boolean;
 };
 
 export type Attachment = {
@@ -176,6 +178,16 @@ export type SessionStatus = {
   allowMock?: boolean;
   scrapeReady?: boolean;
   wfConnected?: boolean;
+  version?: string;
+  scrape?: {
+    envConfigured: boolean;
+    running: boolean;
+    lastAt?: string;
+    lastError?: string;
+    attachments?: number;
+    menus?: number;
+    notices?: number;
+  };
   storage?: {
     backend: "postgres" | "file" | "none";
     persistent: boolean;
@@ -287,5 +299,27 @@ export function adminScrape() {
 export function fetchStructure() {
   return request<{ structure: unknown; captures: Record<string, unknown> }>(
     "/api/admin/structure",
+  );
+}
+
+export async function uploadStudentPhoto(studentId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`/api/students/${encodeURIComponent(studentId)}/photo`, {
+    method: "POST",
+    credentials: "include",
+    body,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || data?.ok === false) {
+    throw new Error(data?.error || `Error ${res.status}`);
+  }
+  return data as { ok: true; dashboard: Dashboard };
+}
+
+export async function removeStudentPhoto(studentId: string) {
+  return request<{ dashboard: Dashboard }>(
+    `/api/students/${encodeURIComponent(studentId)}/photo`,
+    { method: "DELETE", body: "{}" },
   );
 }

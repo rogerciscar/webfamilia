@@ -35,6 +35,11 @@ import {
   listCustomSlots,
   upsertCustomSlot,
 } from "./custom-schedule";
+import {
+  deleteStudentPhoto,
+  readStudentPhoto,
+  saveStudentPhoto,
+} from "./student-photos";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -68,17 +73,23 @@ app.use(
   }),
 );
 
-app.get("/api/health", (c) =>
-  c.json({
+app.get("/api/health", async (c) => {
+  const session = await getStatus();
+  return c.json({
     ok: true,
     service: "webfamilia-app",
+    version: session.version,
     web: Boolean(webRootAbs),
     webRoot: webRootAbs,
     storage: getStorageInfo(),
     allowMock: mockAllowed(),
-    envScrape: Boolean(process.env.WF_USER || process.env.PONT_WF_USER),
-  }),
-);
+    envScrape: Boolean(
+      (process.env.WF_USER || process.env.PONT_WF_USER) &&
+        (process.env.WF_PASS || process.env.PONT_WF_PASS),
+    ),
+    scrape: session.scrape,
+  });
+});
 
 app.get("/api/session", async (c) => {
   const browser = await requireBrowserSession(c);
@@ -278,6 +289,44 @@ app.post("/api/schedule/custom", async (c) => {
 app.delete("/api/schedule/custom/:id", async (c) => {
   if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   await deleteCustomSlot(c.req.param("id"));
+  const dashboard = await getDashboard();
+  return c.json({ ok: true, dashboard });
+});
+
+app.get("/api/students/:id/photo", async (c) => {
+  if (!(await requireBrowserSession(c))) return c.text("Unauthorized", 401);
+  const photo = await readStudentPhoto(c.req.param("id"));
+  if (!photo) return c.text("Not found", 404);
+  return new Response(new Uint8Array(photo.buffer), {
+    headers: {
+      "content-type": photo.mime,
+      "cache-control": "private, max-age=60",
+    },
+  });
+});
+
+app.post("/api/students/:id/photo", async (c) => {
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  try {
+    const studentId = c.req.param("id");
+    const body = await c.req.parseBody();
+    const file = body.file ?? body.photo;
+    if (!file || typeof file === "string") {
+      return c.json({ ok: false, error: "Cal una imatge (camp file)." }, 400);
+    }
+    const buf = Buffer.from(await file.arrayBuffer());
+    const mime = file.type || "image/jpeg";
+    await saveStudentPhoto({ studentId, buffer: buf, mime });
+    const dashboard = await getDashboard();
+    return c.json({ ok: true, dashboard });
+  } catch (error) {
+    return c.json({ ok: false, error: errorMessage(error) }, 400);
+  }
+});
+
+app.delete("/api/students/:id/photo", async (c) => {
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  await deleteStudentPhoto(c.req.param("id"));
   const dashboard = await getDashboard();
   return c.json({ ok: true, dashboard });
 });

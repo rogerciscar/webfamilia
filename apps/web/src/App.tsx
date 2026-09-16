@@ -1,15 +1,16 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  adminScrape,
   fetchDashboard,
   fetchSession,
   forget,
   login,
   logout,
   removeCustomSlot,
+  removeStudentPhoto,
   saveCustomSlot,
   startMock,
   unlock,
+  uploadStudentPhoto,
   type Dashboard,
   type MenuExtraction,
   type SessionStatus,
@@ -42,6 +43,13 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
+const APP_VERSION = "0.2.0";
+
+function todayWeekday(): (typeof WEEK_DAYS)[number] {
+  const idx = new Date().getDay();
+  if (idx >= 1 && idx <= 5) return WEEK_DAYS[idx - 1]!;
+  return "Dilluns";
+}
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
@@ -60,12 +68,40 @@ function Brand({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function Entrance({
+  version,
+  label,
+}: {
+  version?: string;
+  label: string;
+}) {
+  return (
+    <main className="entrance" aria-busy="true" aria-live="polite">
+      <div className="entrance-stage">
+        <div className="entrance-orb" aria-hidden="true" />
+        <div className="entrance-orb entrance-orb-2" aria-hidden="true" />
+        <div className="entrance-card">
+          <div className="entrance-logo-3d">
+            <img src="/webfamilia-logo.png" alt="" width={96} height={96} />
+          </div>
+          <h1 className="brand entrance-title">
+            WebFamilia<em>.</em>
+          </h1>
+          <p className="lede entrance-lede">{label}</p>
+          <span className="version-badge">v{version || APP_VERSION}</span>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState<SessionStatus | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [tab, setTab] = useState<Tab>("agenda");
   const [busy, setBusy] = useState(false);
   const [booting, setBooting] = useState(true);
+  const [entering, setEntering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [changeUser, setChangeUser] = useState(false);
   const [username, setUsername] = useState("");
@@ -73,10 +109,16 @@ export default function App() {
   const [remember, setRemember] = useState(true);
   const [unlockPassword, setUnlockPassword] = useState("");
   const [studentId, setStudentId] = useState<string | null>(null);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [structureJson, setStructureJson] = useState<string | null>(null);
-  const [scheduleDay, setScheduleDay] = useState<string>("Dilluns");
+  const [scheduleDay, setScheduleDay] = useState<string>(() => todayWeekday());
   const [slotForm, setSlotForm] = useState({ subject: "", start: "18:00", end: "19:00" });
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  function revealApp(dash: Dashboard, nextSession?: SessionStatus) {
+    setEntering(true);
+    setDashboard(dash);
+    if (nextSession) setSession(nextSession);
+    window.setTimeout(() => setEntering(false), 1100);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +133,7 @@ export default function App() {
         if (cancelled) return;
         setSession(status);
         if (status.authenticated && status.dashboard) {
-          setDashboard(status.dashboard);
+          revealApp(status.dashboard, status);
           return;
         }
         if (status.username && !remembered) setUsername(status.username);
@@ -120,8 +162,7 @@ export default function App() {
     setError(null);
     try {
       const res = await startMock();
-      setSession(res.session);
-      setDashboard(res.dashboard);
+      revealApp(res.dashboard, res.session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     } finally {
@@ -143,9 +184,8 @@ export default function App() {
       });
       if (remember) saveRememberedLogin({ username, keepPassword: false });
       else clearRememberedLogin();
-      setSession(res.session);
-      setDashboard(res.dashboard);
       setChangeUser(false);
+      revealApp(res.dashboard, res.session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error de login");
     } finally {
@@ -161,8 +201,7 @@ export default function App() {
         masterPassword: opts?.master,
         password: opts?.password,
       });
-      setSession(res.session);
-      setDashboard(res.dashboard);
+      revealApp(res.dashboard, res.session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut desbloquejar");
     } finally {
@@ -190,7 +229,6 @@ export default function App() {
       setPassword("");
       setUnlockPassword("");
       setChangeUser(true);
-      setStructureJson(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'han pogut oblidar");
     } finally {
@@ -204,7 +242,6 @@ export default function App() {
       const res = await logout();
       setSession(res.session);
       setDashboard(null);
-      setStructureJson(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error en tancar sessió");
     } finally {
@@ -225,30 +262,47 @@ export default function App() {
     }
   }
 
-  async function onAdminScrape() {
+  async function onPickPhoto(file: File | null) {
+    if (!file || !studentId) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await adminScrape();
+      const res = await uploadStudentPhoto(studentId, file);
       setDashboard(res.dashboard);
-      setSession(res.session);
-      setStructureJson(JSON.stringify({ structure: res.structure, captures: res.captures }, null, 2));
-      setShowAdmin(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de scrape admin");
+      setError(err instanceof Error ? err.message : "No s'ha pogut pujar la foto");
+    } finally {
+      setBusy(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  }
+
+  async function onClearPhoto() {
+    if (!studentId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await removeStudentPhoto(studentId);
+      setDashboard(res.dashboard);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No s'ha pogut treure la foto");
     } finally {
       setBusy(false);
     }
   }
 
-  if (booting) {
+  if (booting || entering) {
     return (
-      <main className="gate">
-        <div className="gate-inner">
-          <Brand />
-          <p className="lede">Obrint sessió desada…</p>
-        </div>
-      </main>
+      <Entrance
+        version={session?.version || APP_VERSION}
+        label={
+          entering
+            ? "Entrant…"
+            : session?.scrape?.running
+              ? "Scrapejant Web Família…"
+              : "Obrint sessió desada…"
+        }
+      />
     );
   }
 
@@ -358,6 +412,16 @@ export default function App() {
               {error}
             </p>
           )}
+          <p className="hint version-line">
+            v{session?.version || APP_VERSION}
+            {session?.scrape?.envConfigured
+              ? session.scrape.running
+                ? " · scrapejant…"
+                : session.scrape.lastAt
+                  ? ` · darrera captura ${new Date(session.scrape.lastAt).toLocaleString("ca-ES")}`
+                  : " · scrape d'arrencada actiu"
+              : " · configura WF_USER/WF_PASS al servidor"}
+          </p>
         </div>
       </main>
     );
@@ -418,20 +482,46 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${entering ? "app-shell-enter" : ""}`}>
       <header className="topbar">
-        <div className="topbar-brand">
-          <img src="/webfamilia-logo.png" alt="" width={44} height={44} />
-          <div>
-            <h1>WebFamilia</h1>
-            <p>
+        <div className="topbar-main">
+          <button
+            type="button"
+            className="avatar-btn"
+            disabled={busy || !student}
+            onClick={() => photoInputRef.current?.click()}
+            title="Foto de carnet des de la galeria"
+            aria-label="Pujar foto de carnet"
+          >
+            {student?.photoUrl || student?.hasPhoto ? (
+              <img
+                src={`${student.photoUrl || `/api/students/${student.id}/photo`}?t=${dashboard.capturedAt}`}
+                alt=""
+                className="avatar-img"
+              />
+            ) : (
+              <span className="avatar-fallback">{(student?.name || "?").slice(0, 1)}</span>
+            )}
+          </button>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(e) => void onPickPhoto(e.target.files?.[0] ?? null)}
+          />
+          <div className="topbar-text">
+            <div className="topbar-title-row">
+              <h1>WebFamilia</h1>
+              <span className="version-badge quiet">v{session?.version || APP_VERSION}</span>
+            </div>
+            <p className="student-line">
               {student ? student.name : "Sense alumne"}
               {student?.group || student?.course
                 ? ` · ${student.group || student.course}`
                 : ""}
-              {student?.center ? ` · ${student.center}` : ""}
             </p>
-            <p className="hint" style={{ margin: 0 }}>
+            <p className="hint meta-line">
               {student?.tutorName ? `Tutor/a: ${student.tutorName}` : "Tutor/a: —"}
               {student?.nia ? ` · NIA ${student.nia}` : ""}
             </p>
@@ -440,23 +530,19 @@ export default function App() {
               {dashboard.source === "mock" ? "Exemple" : "En viu"} ·{" "}
               {new Date(dashboard.capturedAt).toLocaleString("ca-ES")}
               {scrapeInfo
-                ? ` · ${scrapeInfo.notices} avisos · ${scrapeInfo.schedule} hores · ${scrapeInfo.absences ?? 0} faltes`
+                ? ` · ${scrapeInfo.notices} avisos · ${scrapeInfo.schedule} hores · ${scrapeInfo.menus ?? 0} menús`
                 : ""}
             </p>
           </div>
         </div>
         <div className="topbar-actions">
-          <button type="button" className="ghost" disabled={busy} onClick={refresh}>
+          {(student?.photoUrl || student?.hasPhoto) && (
+            <button type="button" className="ghost" disabled={busy} onClick={() => void onClearPhoto()}>
+              Treure foto
+            </button>
+          )}
+          <button type="button" className="ghost" disabled={busy} onClick={refresh} title="Actualitzar dades">
             Act.
-          </button>
-          <button
-            type="button"
-            className="ghost"
-            disabled={busy || dashboard.source !== "live"}
-            onClick={onAdminScrape}
-            title="Rescanejar estructura"
-          >
-            Admin
           </button>
           <button type="button" className="ghost" disabled={busy} onClick={onLogout}>
             Sortir
@@ -474,6 +560,13 @@ export default function App() {
               className={s.id === student?.id ? "active" : ""}
               onClick={() => setStudentId(s.id)}
             >
+              {(s.photoUrl || s.hasPhoto) && (
+                <img
+                  src={`${s.photoUrl || `/api/students/${s.id}/photo`}?t=${dashboard.capturedAt}`}
+                  alt=""
+                  className="chip-avatar"
+                />
+              )}
               {s.name.split(" ")[0]}
               {info ? ` · ${info.notices}` : ""}
             </button>
@@ -774,14 +867,14 @@ export default function App() {
                 </thead>
                 <tbody>
                   {daySlots.map((h) => (
-                    <tr key={h.id}>
+                    <tr key={h.id} className={h.custom ? "slot-custom" : undefined}>
                       <th className="time" scope="row">
                         <strong>{h.start || "—"}</strong>
                         {h.end ? <span> – {h.end}</span> : null}
                       </th>
                       <td className="cell-main">
                         {h.subject}
-                        {h.custom ? <span className="pill ok"> Propi</span> : null}
+                        {h.custom ? <span className="pill custom"> Propi</span> : null}
                       </td>
                       <td>
                         {h.custom ? (
@@ -845,32 +938,6 @@ export default function App() {
           </form>
         </Section>
       )}
-      <div className="admin-panel">
-        <button
-          type="button"
-          className="ghost"
-          disabled={busy || dashboard.source !== "live"}
-          onClick={() => {
-            setShowAdmin((v) => !v);
-            if (!structureJson && dashboard.source === "live") void onAdminScrape();
-          }}
-        >
-          {showAdmin ? "Amagar admin" : "Admin · Rescanejar"}
-        </button>
-        {session?.hasStoredCredentials && (
-          <button type="button" className="ghost" disabled={busy} onClick={onForget}>
-            Oblidar login
-          </button>
-        )}
-        {showAdmin && (dashboard.diagnostics?.scrapedStudents?.length ?? 0) > 0 && (
-          <p className="hint">
-            {dashboard.diagnostics!.scrapedStudents!
-              .map((s) => `${s.name.split(" ")[0]}: ${s.notices} avisos, ${s.schedule} hores`)
-              .join(" · ")}
-          </p>
-        )}
-        {showAdmin && structureJson && <pre>{structureJson}</pre>}
-      </div>
     </div>
   );
 }

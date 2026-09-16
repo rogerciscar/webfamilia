@@ -7,6 +7,9 @@ export type Student = {
   group?: string;
   enrollmentYear?: string;
   tutorName?: string;
+  /** Local carnet photo (phone gallery); stored on volume, no S3 bucket. */
+  photoUrl?: string;
+  hasPhoto?: boolean;
 };
 
 export type AttachmentKind =
@@ -203,6 +206,16 @@ export type SessionStatus = {
   allowMock?: boolean;
   scrapeReady?: boolean;
   wfConnected?: boolean;
+  version?: string;
+  scrape?: {
+    envConfigured: boolean;
+    running: boolean;
+    lastAt?: string;
+    lastError?: string;
+    attachments?: number;
+    menus?: number;
+    notices?: number;
+  };
   storage?: {
     backend: "postgres" | "file" | "none";
     persistent: boolean;

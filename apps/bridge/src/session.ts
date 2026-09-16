@@ -29,13 +29,20 @@ import { extractMenuFromPdf } from "./menu-pdf";
 import { PlaywrightPdfSession } from "./playwright-pdf";
 import { mockAllowed, passwordsMatch } from "./browser-session";
 import { listCustomSlots } from "./custom-schedule";
+import { loadDashboardCache, saveDashboardCache } from "./dashboard-cache";
+import { listPhotoStudentIds, photoPublicUrl } from "./student-photos";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as cheerio from "cheerio";
 
 const BOOT_PATHS = [
   "listar_alumnos_wf",
   "main_wf",
 ];
+
+const APP_VERSION = readAppVersion();
 
 type RuntimeState = {
   mode: "mock" | "live";
@@ -48,6 +55,10 @@ type RuntimeState = {
   captures: Record<string, string>;
   structure: StructureReport | null;
   autoLoginPromise?: Promise<Dashboard | null>;
+  scrapeRunning: boolean;
+  scrapeLastAt?: string;
+  scrapeLastError?: string;
+  cacheHydrated?: boolean;
 };
 
 const state: RuntimeState = {
@@ -55,12 +66,51 @@ const state: RuntimeState = {
   client: null,
   captures: {},
   structure: null,
+  scrapeRunning: false,
 };
+
+function readAppVersion() {
+  try {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
+      version?: string;
+    };
+    return pkg.version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function envScrapeConfigured() {
+  const username = (process.env.WF_USER || process.env.PONT_WF_USER || "").trim();
+  const password = process.env.WF_PASS || process.env.PONT_WF_PASS || "";
+  return Boolean(username && password);
+}
+
+async function hydrateCacheOnce() {
+  if (state.cacheHydrated) return;
+  state.cacheHydrated = true;
+  if (state.lastDashboard?.source === "live") return;
+  try {
+    const cached = await loadDashboardCache();
+    if (cached) {
+      state.lastDashboard = cached;
+      state.mode = "live";
+      state.lastLoginAt = cached.capturedAt;
+      console.log(
+        `[webfamilia] cache dashboard · students=${cached.students.length} · attachments=${cached.attachments?.length ?? 0}`,
+      );
+    }
+  } catch (err) {
+    console.error("[webfamilia] cache hydrate failed:", err);
+  }
+}
 
 export async function getStatus(opts?: {
   browserAuth?: boolean;
   sessionMode?: "mock" | "live";
 }): Promise<SessionStatus> {
+  await hydrateCacheOnce();
   const meta = await peekVaultMeta();
   const storage = getStorageInfo();
   const browserAuth = Boolean(opts?.browserAuth);
@@ -72,9 +122,10 @@ export async function getStatus(opts?: {
         ? "live"
         : browserAuth && state.lastDashboard?.source === "mock"
           ? "mock"
-          : wfLive
+          : wfLive || state.lastDashboard?.source === "live"
             ? "live"
             : "mock";
+  const dash = state.lastDashboard;
   return {
     authenticated: browserAuth,
     mode: browserAuth ? mode : "mock",
@@ -83,11 +134,21 @@ export async function getStatus(opts?: {
     hasStoredCredentials: await vaultExists(),
     vaultMode: meta?.mode,
     lastLoginAt: state.lastLoginAt ?? meta?.updatedAt,
-    error: state.lastError,
+    error: state.lastError || state.scrapeLastError,
     storage,
     allowMock: mockAllowed(),
-    scrapeReady: Boolean(state.lastDashboard && state.lastDashboard.source === "live"),
+    scrapeReady: Boolean(dash && dash.source === "live"),
     wfConnected: wfLive,
+    version: APP_VERSION,
+    scrape: {
+      envConfigured: envScrapeConfigured(),
+      running: state.scrapeRunning,
+      lastAt: state.scrapeLastAt ?? dash?.capturedAt,
+      lastError: state.scrapeLastError,
+      attachments: dash?.attachments?.length ?? 0,
+      menus: dash?.menus?.length ?? 0,
+      notices: dash?.notices?.length ?? 0,
+    },
   };
 }
 
@@ -189,6 +250,14 @@ export async function unlockAndLogin(input: {
       throw new Error("Cal la contrasenya mestra per desbloquejar.");
     }
     const creds = await loadCredentials(input.masterPassword);
+    if (
+      state.client?.isAuthenticated() &&
+      state.client.username === creds.username &&
+      state.lastDashboard?.source === "live"
+    ) {
+      state.wfPassword = creds.password;
+      return mergeCustomIntoDashboard(state.lastDashboard);
+    }
     return loginLive({
       username: creds.username,
       password: creds.password,
@@ -202,6 +271,14 @@ export async function unlockAndLogin(input: {
       "Cal la contrasenya de Web Família per obrir la sessió en aquest navegador.",
     );
   }
+  if (
+    state.client?.isAuthenticated() &&
+    state.client.username === creds.username &&
+    state.lastDashboard?.source === "live"
+  ) {
+    state.wfPassword = creds.password;
+    return mergeCustomIntoDashboard(state.lastDashboard);
+  }
   return loginLive({
     username: creds.username,
     password: creds.password,
@@ -214,25 +291,57 @@ export async function tryAutoLogin(): Promise<Dashboard | null> {
   return null;
 }
 
-/** Server-side scrape using Railway WF_USER / WF_PASS (no browser session). */
+/** Server-side scrape using Railway WF_USER / WF_PASS (runs on boot). */
 export async function tryEnvLogin(): Promise<Dashboard | null> {
+  await hydrateCacheOnce();
   const username = (process.env.WF_USER || process.env.PONT_WF_USER || "").trim();
   const password = process.env.WF_PASS || process.env.PONT_WF_PASS || "";
-  if (!username || !password) return null;
-  if (state.client?.isAuthenticated() && state.client.username === username.toUpperCase()) {
-    return state.lastDashboard ?? (await buildDashboard(state.client));
+  if (!username || !password) {
+    const msg =
+      "WF_USER/WF_PASS no configurats — el scrape d'arrencada no s'executa.";
+    state.scrapeLastError = msg;
+    console.warn(`[webfamilia] ${msg}`);
+    return null;
   }
+  if (state.client?.isAuthenticated() && state.client.username === username.toUpperCase()) {
+    if (state.lastDashboard?.source === "live") return state.lastDashboard;
+    state.scrapeRunning = true;
+    try {
+      const dash = await buildDashboard(state.client);
+      state.scrapeLastAt = new Date().toISOString();
+      state.scrapeLastError = undefined;
+      return dash;
+    } catch (error) {
+      state.scrapeLastError = error instanceof Error ? error.message : "rescan fallit";
+      console.error("[webfamilia] env rescan failed:", state.scrapeLastError);
+      return state.lastDashboard ?? null;
+    } finally {
+      state.scrapeRunning = false;
+    }
+  }
+  state.scrapeRunning = true;
   try {
-    return await loginLive({
+    console.log(`[webfamilia] boot scrape · user=···${username.slice(-3)}`);
+    // remember device vault so the phone gate can unlock against the same account
+    const dash = await loginLive({
       username,
       password,
-      remember: false,
+      remember: true,
       idioma: "V",
     });
+    state.scrapeLastAt = new Date().toISOString();
+    state.scrapeLastError = undefined;
+    console.log(
+      `[webfamilia] env scrape ok · students=${dash.students.length} · pdfs=${dash.attachments?.length ?? 0} · menus=${dash.menus?.length ?? 0}`,
+    );
+    return dash;
   } catch (error) {
-    state.lastError = error instanceof Error ? error.message : "WF_USER login fallit";
-    console.error("[webfamilia] env login failed:", state.lastError);
-    return null;
+    state.scrapeLastError = error instanceof Error ? error.message : "WF_USER login fallit";
+    state.lastError = state.scrapeLastError;
+    console.error("[webfamilia] env login failed:", state.scrapeLastError);
+    return state.lastDashboard ?? null;
+  } finally {
+    state.scrapeRunning = false;
   }
 }
 
@@ -240,20 +349,31 @@ let scrapeTimer: ReturnType<typeof setInterval> | null = null;
 
 export function startBackgroundScrape() {
   const minutes = Number(process.env.PONT_SCRAPE_MINUTES || 45);
-  void tryEnvLogin().then((dash) => {
-    if (dash) console.log(`[webfamilia] env scrape ok · students=${dash.students.length}`);
-  });
+  void (async () => {
+    await hydrateCacheOnce();
+    const dash = await tryEnvLogin();
+    if (!dash && !envScrapeConfigured()) {
+      console.warn(
+        "[webfamilia] Sense WF_USER+WF_PASS el servidor no pot scrapear PDFs a l'arrencada.",
+      );
+    }
+  })();
   if (scrapeTimer || !Number.isFinite(minutes) || minutes <= 0) return;
   scrapeTimer = setInterval(() => {
     void (async () => {
       try {
         if (state.client?.isAuthenticated()) {
+          state.scrapeRunning = true;
           await buildDashboard(state.client);
+          state.scrapeLastAt = new Date().toISOString();
+          state.scrapeLastError = undefined;
+          state.scrapeRunning = false;
           console.log("[webfamilia] periodic rescan ok");
           return;
         }
         await tryEnvLogin();
       } catch (err) {
+        state.scrapeRunning = false;
         console.error("[webfamilia] periodic scrape failed", err);
       }
     })();
@@ -298,7 +418,15 @@ async function mergeCustomIntoDashboard(dash: Dashboard): Promise<Dashboard> {
     custom.map((s) => ({ ...s, custom: true as const })),
     (s) => `${s.studentId || ""}:${s.id}`,
   );
-  return { ...dash, schedule };
+  const photoIds = new Set(await listPhotoStudentIds());
+  const students = dash.students.map((s) =>
+    photoIds.has(s.id)
+      ? { ...s, hasPhoto: true, photoUrl: photoPublicUrl(s.id) }
+      : { ...s, hasPhoto: false, photoUrl: undefined },
+  );
+  const student =
+    students.find((s) => s.id === dash.student?.id) ?? students[0] ?? dash.student ?? null;
+  return { ...dash, schedule, students, student };
 }
 
 export function getCaptures() {
@@ -803,6 +931,9 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     diagnostics,
   };
   state.lastDashboard = dashboard;
+  void saveDashboardCache(dashboard).catch((err) =>
+    console.error("[webfamilia] dashboard cache save failed:", err),
+  );
   return dashboard;
 }
 
