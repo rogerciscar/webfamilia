@@ -86,11 +86,37 @@ export async function loginLive(input: {
     if (input.remember !== false) {
       const mode = input.protectWithMaster ? "master" : "device";
       await saveCredentials(
-        { username: input.username, password: input.password },
+        { username: input.username.trim().toUpperCase(), password: input.password },
         { mode, masterPassword: input.masterPassword },
       );
     }
-    return buildDashboard(client);
+    try {
+      return await buildDashboard(client);
+    } catch (dashError) {
+      // Login worked; scraping can still fail. Return a minimal live dashboard.
+      const students = parseStudents(page.html);
+      const dashboard: Dashboard = {
+        source: "live",
+        capturedAt: new Date().toISOString(),
+        students,
+        student: students[0] ?? {
+          id: "1",
+          name: input.username.trim().toUpperCase(),
+        },
+        notices: parseNotices(page.html),
+        absences: [],
+        grades: [],
+        messages: [],
+        activities: [],
+        behaviors: [],
+      };
+      state.lastDashboard = dashboard;
+      state.lastError =
+        dashError instanceof Error
+          ? `Login OK, però el scrape parcial ha fallat: ${dashError.message}`
+          : "Login OK, scrape parcial fallit";
+      return dashboard;
+    }
   } catch (error) {
     state.client = null;
     state.mode = "mock";

@@ -5,6 +5,9 @@ export const WF_BASE = "https://familia.edu.gva.es/wf-front";
 export const WF_LOGIN = `${WF_BASE}/myitaca/login_wf`;
 export const WF_MAIN = `${WF_BASE}/myitaca/main_wf`;
 
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
 export type FetchResult = {
   url: string;
   status: number;
@@ -19,13 +22,16 @@ function jarToHeader(jar: CookieJar, url: string) {
 async function storeSetCookies(jar: CookieJar, url: string, headers: Headers) {
   const raw = headers.getSetCookie?.() ?? [];
   for (const cookie of raw) {
-    await jar.setCookie(cookie, url);
+    try {
+      await jar.setCookie(cookie, url);
+    } catch {
+      // ignore malformed cookies
+    }
   }
 }
 
 async function readHtml(res: Response) {
   const buf = Buffer.from(await res.arrayBuffer());
-  // Official pages declare utf-8 but often ship ISO-8859-1 bytes.
   return buf.toString("latin1");
 }
 
@@ -36,12 +42,12 @@ export class WebFamiliaClient {
   username = "";
 
   async login(username: string, password: string, idioma: "V" | "C" = "V") {
-    this.username = username;
-    await this.get(WF_LOGIN + `?idioma=${idioma.toLowerCase()}`, {
+    this.username = username.trim().toUpperCase();
+    await this.get(`${WF_LOGIN}?idioma=${idioma.toLowerCase()}`, {
       allowLoginPage: true,
     });
     const body = new URLSearchParams({
-      documento: username,
+      documento: this.username,
       contrasenya: password,
       idioma,
       loginParam: "",
@@ -53,9 +59,10 @@ export class WebFamiliaClient {
         "content-type": "application/x-www-form-urlencoded",
         cookie: jarToHeader(this.jar, WF_MAIN),
         origin: "https://familia.edu.gva.es",
-        referer: WF_LOGIN,
-        "user-agent":
-          "Mozilla/5.0 (compatible; PontFamilia/0.1; +personal-use-bridge)",
+        referer: `${WF_LOGIN}?idioma=${idioma.toLowerCase()}`,
+        "user-agent": BROWSER_UA,
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "ca-ES,ca;q=0.9,es;q=0.8",
       },
       body,
     });
@@ -76,10 +83,65 @@ export class WebFamiliaClient {
         title: cheerio.load(html)("title").text().trim(),
       };
     }
-    if (looksLikeLogin(page.html) || looksLikeLoginError(page.html)) {
+    if (isLoginFailure(page)) {
+      throw new Error(loginErrorMessage(page.html));
+    }
+    if (isLopdPage(page.html)) {
+      // Best-effort accept; if it fails we still keep the session page.
+      page = await this.acceptLopdIfPresent(page);
+    }
+    if (isLoginFailure(page)) {
       throw new Error(loginErrorMessage(page.html));
     }
     return page;
+  }
+
+  async acceptLopdIfPresent(page: FetchResult): Promise<FetchResult> {
+    const $ = cheerio.load(page.html);
+    const form = $("form").first();
+    if (!form.length) return page;
+    const action = form.attr("action") || page.url;
+    const actionUrl = new URL(action, page.url).toString();
+    const params = new URLSearchParams();
+    form.find("input").each((_, el) => {
+      const name = $(el).attr("name");
+      if (!name) return;
+      const type = ($(el).attr("type") || "text").toLowerCase();
+      if (type === "checkbox" || type === "radio") {
+        params.set(name, $(el).attr("value") || "on");
+        return;
+      }
+      params.set(name, $(el).attr("value") || "");
+    });
+    if (![...params.keys()].length) return page;
+    const res = await fetch(actionUrl, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: jarToHeader(this.jar, actionUrl),
+        origin: "https://familia.edu.gva.es",
+        referer: page.url,
+        "user-agent": BROWSER_UA,
+      },
+      body: params,
+    });
+    await storeSetCookies(this.jar, actionUrl, res.headers);
+    const location = res.headers.get("location");
+    if (location) {
+      return this.get(new URL(location, actionUrl).toString(), {
+        allowLoginPage: true,
+      });
+    }
+    const html = await readHtml(res);
+    this.lastHtml = html;
+    this.lastUrl = actionUrl;
+    return {
+      url: actionUrl,
+      status: res.status,
+      html,
+      title: cheerio.load(html)("title").text().trim(),
+    };
   }
 
   async get(
@@ -93,16 +155,16 @@ export class WebFamiliaClient {
       redirect: "follow",
       headers: {
         cookie: jarToHeader(this.jar, url),
-        "user-agent":
-          "Mozilla/5.0 (compatible; PontFamilia/0.1; +personal-use-bridge)",
+        "user-agent": BROWSER_UA,
         accept: "text/html,application/xhtml+xml",
+        "accept-language": "ca-ES,ca;q=0.9,es;q=0.8",
       },
     });
     await storeSetCookies(this.jar, url, res.headers);
     const html = await readHtml(res);
     this.lastHtml = html;
     this.lastUrl = res.url;
-    if (!opts.allowLoginPage && looksLikeLogin(html)) {
+    if (!opts.allowLoginPage && isLoginFailure({ url: res.url, html })) {
       throw new Error("Sessió caducada o no autenticada.");
     }
     return {
@@ -114,28 +176,46 @@ export class WebFamiliaClient {
   }
 
   isAuthenticated() {
-    return Boolean(this.lastHtml) && !looksLikeLogin(this.lastHtml);
+    return Boolean(this.lastHtml) && !isLoginFailure({
+      url: this.lastUrl,
+      html: this.lastHtml,
+    });
   }
 }
 
-export function looksLikeLogin(html: string) {
-  const $ = cheerio.load(html);
-  return (
-    $("#imc-form-login").length > 0 ||
-    $('form[name="form_login"]').length > 0 ||
-    /login_wf\?session_expired/i.test(html)
-  );
+export function isLopdPage(html: string) {
+  return /lopd|protecci[oó]n de datos|protecci[oó] de dades|tractament de dades|aceptar.*condiciones|acceptar.*condicions/i.test(
+    html,
+  ) && /<form/i.test(html);
 }
 
-export function looksLikeLoginError(html: string) {
-  return /error en l.?acc|error en el acceso|credencial|incorrect/i.test(html);
+export function isLoginFailure(page: Pick<FetchResult, "url" | "html">) {
+  const onLoginUrl = /login_wf/i.test(page.url);
+  const hasLoginForm =
+    /id=["']imc-form-login["']|name=["']form_login["']/i.test(page.html);
+  const hasErrorHeading =
+    /<h2[^>]*>\s*S['']ha produ[iï]t un error en l['']acc[eé]s\s*<\/h2>/i.test(
+      page.html,
+    ) ||
+    /<h2[^>]*>\s*Se ha producido un error en el acceso\s*<\/h2>/i.test(page.html);
+  if (hasErrorHeading) return true;
+  if (onLoginUrl && hasLoginForm) return true;
+  if (onLoginUrl && /session_expired/i.test(page.url)) return true;
+  return false;
+}
+
+export function looksLikeLogin(html: string) {
+  return isLoginFailure({ url: "", html });
 }
 
 export function loginErrorMessage(html: string) {
   const $ = cheerio.load(html);
-  const heading = $("h2, .imc-error, .error").first().text().replace(/\s+/g, " ").trim();
-  if (heading) return heading;
-  return "Login rebutjat: revisa usuari/contrasenya o acceptació LOPD pendent.";
+  const heading = $("h2").first().text().replace(/\s+/g, " ").trim();
+  if (/error/i.test(heading)) return heading;
+  if (/session_expired|caduc/i.test(html)) {
+    return "Sessió caducada al portal oficial. Torna-ho a provar.";
+  }
+  return "Login rebutjat per Web Família. Revisa usuari/contrasenya o accepta la LOPD al portal oficial una primera vegada.";
 }
 
 export function extractNavLinks(html: string) {

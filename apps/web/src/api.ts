@@ -88,7 +88,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
-  const data = await res.json();
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Error ${res.status}: resposta no JSON del servidor`);
+  }
   if (!res.ok || data?.ok === false) {
     throw new Error(data?.error || `Error ${res.status}`);
   }

@@ -308,6 +308,15 @@ export default function App() {
               {error}
             </p>
           )}
+          {showLive && !error && (
+            <p className="hint">
+              Si falla l&apos;entrada, assegura&apos;t que el mateix usuari funciona a{" "}
+              <a href="https://familia.edu.gva.es" target="_blank" rel="noreferrer">
+                familia.edu.gva.es
+              </a>{" "}
+              (i que has acceptat la LOPD al portal oficial almenys un cop).
+            </p>
+          )}
         </div>
       </main>
     );

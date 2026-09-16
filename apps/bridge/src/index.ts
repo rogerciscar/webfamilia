@@ -75,28 +75,39 @@ app.post("/api/session/mock", async (c) => {
 });
 
 const loginSchema = z.object({
-  username: z.string().min(3),
+  username: z.string().trim().min(3),
   password: z.string().min(1),
   remember: z.boolean().optional().default(true),
   protectWithMaster: z.boolean().optional().default(false),
-  masterPassword: z.string().min(8).optional(),
+  masterPassword: z.union([z.string().min(8), z.literal(""), z.undefined()]).optional(),
   idioma: z.enum(["V", "C"]).optional(),
 });
+
+function errorMessage(error: unknown) {
+  if (error instanceof z.ZodError) {
+    return error.issues.map((i) => i.message).join("; ") || "Dades de login invàlides";
+  }
+  if (error instanceof Error) return error.message;
+  return "Error de login";
+}
 
 app.post("/api/session/login", async (c) => {
   try {
     const body = loginSchema.parse(await c.req.json());
-    if (body.protectWithMaster && !body.masterPassword) {
+    const masterPassword =
+      body.masterPassword && body.masterPassword.length >= 8
+        ? body.masterPassword
+        : undefined;
+    if (body.protectWithMaster && !masterPassword) {
       return c.json(
         { ok: false, error: "Cal contrasenya mestra si actives la protecció extra." },
         400,
       );
     }
-    const dashboard = await loginLive(body);
+    const dashboard = await loginLive({ ...body, masterPassword });
     return c.json({ ok: true, dashboard, session: await getStatus() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Error de login";
-    return c.json({ ok: false, error: message }, 400);
+    return c.json({ ok: false, error: errorMessage(error) }, 400);
   }
 });
 
