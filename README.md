@@ -28,7 +28,7 @@ npm run dev
 | `PONT_SCRAPE_MINUTES` | Minutos entre rescrapes (default `45`; `0` = solo boot) |
 | `PONT_ALLOW_MOCK` | `0` en prod (default si Railway); `1` para permitir ejemplo |
 | `PONT_VAULT_SECRET` | Secreto de cifrado del vault (si no, se deriva de `DATABASE_URL`) |
-| `PONT_SESSION_DAYS` | Duración cookie de sesión del navegador (default 14) |
+| `PONT_SESSION_DAYS` | Duración cookie de sesión del navegador (default **365**, se renueva al usar) |
 
 Con `WF_USER`/`WF_PASS` el servidor scrapea solo; **ver** los datos sigue exigiendo login en ese navegador.
 

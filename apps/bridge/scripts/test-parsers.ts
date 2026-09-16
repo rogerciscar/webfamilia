@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   parseAbsences,
   parseActivities,
+  parseDocumentLinks,
   parseMatriculaLinks,
   parseNotices,
   parseSchedule,
@@ -55,6 +56,13 @@ const absences = parseAbsences(assist);
 if (absences.length < 2) throw new Error(`expected absences, got ${absences.length}`);
 if (absences[0].kind !== "retard") throw new Error("expected retard");
 
+const detail = readFileSync(path.join(fixtures, "agenda_detail_anon.html"), "utf8");
+const docs = parseDocumentLinks(detail);
+if (docs.length < 2) throw new Error(`expected document links, got ${docs.length}`);
+if (!docs.some((d) => /pdf|documento/i.test(d.href + d.text))) {
+  throw new Error("expected pdf-like document link");
+}
+
 console.log("parsers ok", {
   students: students.length,
   notices: noticesHome.length,
@@ -64,4 +72,5 @@ console.log("parsers ok", {
   sections: sections.length,
   absences: absences.length,
   tutor: enriched.tutorName,
+  docs: docs.length,
 });

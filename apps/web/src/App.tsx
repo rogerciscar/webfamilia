@@ -256,7 +256,6 @@ export default function App() {
     const hasSaved = Boolean(session?.hasStoredCredentials);
     const showUnlock = hasSaved && !changeUser;
     const allowMock = session?.allowMock === true;
-    const savedName = session?.username || username;
     return (
       <main className="gate">
         <div className="gate-inner">
@@ -264,9 +263,7 @@ export default function App() {
           <p className="lede">Web Família, més clara al mòbil.</p>
           {showUnlock ? (
             <form className="panel" onSubmit={onUnlock}>
-              <p className="hint">
-                Compte <strong>{savedName}</strong>
-              </p>
+              <p className="hint">Compte desat en aquest dispositiu</p>
               <label>
                 {session?.vaultMode === "master" ? "Contrasenya mestra" : "Contrasenya"}
                 <input
@@ -533,9 +530,6 @@ export default function App() {
                       <td className="cell-main">
                         {n.title}
                         {n.unread ? <span className="pill warn"> Nou</span> : null}
-                        {n.body && n.body !== n.title ? (
-                          <div className="hint">{n.body.slice(0, 160)}</div>
-                        ) : null}
                       </td>
                       <td>
                         {(n.attachments?.length ?? 0) > 0

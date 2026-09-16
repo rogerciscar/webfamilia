@@ -28,6 +28,7 @@ import { storePdf } from "./attachments";
 import { extractMenuFromPdf } from "./menu-pdf";
 import { mockAllowed, passwordsMatch } from "./browser-session";
 import { listCustomSlots } from "./custom-schedule";
+import { createHash } from "node:crypto";
 import * as cheerio from "cheerio";
 
 const BOOT_PATHS = [
@@ -74,7 +75,8 @@ export async function getStatus(opts?: {
   return {
     authenticated: browserAuth,
     mode: browserAuth ? mode : "mock",
-    username: state.client?.username ?? meta?.username,
+    // Never leak full NIF to the client UI
+    username: browserAuth ? maskLabel(state.client?.username ?? meta?.username) : undefined,
     hasStoredCredentials: await vaultExists(),
     vaultMode: meta?.mode,
     lastLoginAt: state.lastLoginAt ?? meta?.updatedAt,
@@ -84,6 +86,13 @@ export async function getStatus(opts?: {
     scrapeReady: Boolean(state.lastDashboard && state.lastDashboard.source === "live"),
     wfConnected: wfLive,
   };
+}
+
+function maskLabel(username?: string) {
+  if (!username) return undefined;
+  const u = username.trim().toUpperCase();
+  if (u.length <= 3) return "Compte desat";
+  return `Compte ···${u.slice(-3)}`;
 }
 
 export function useMock() {
@@ -395,7 +404,9 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       );
 
   // Scrape EACH student fully on the server (not only the active UI tab)
+  const matriculaByStudent = new Map<string, string>();
   for (const mat of matriculaTargets.slice(0, 8)) {
+    if (mat.matriculaId) matriculaByStudent.set(mat.alumnoId, mat.matriculaId);
     const student = students.find((s) => s.id === mat.alumnoId);
     const ctx = { studentId: mat.alumnoId, studentName: student?.name };
     const q =
@@ -509,66 +520,86 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     }
   }
 
-  // Open aviso details and pull PDFs (Agenda → PDF → Menús)
-  for (const notice of notices.slice(0, 40)) {
-    const detailHref =
-      notice.detailHref ||
-      (notice.id && /^\d+$/.test(notice.id)
-        ? `alumno_avisos_wf?tipo=ag&agenda_id=${notice.id}${notice.studentId ? `&alumno_id=${notice.studentId}` : ""}`
-        : "");
-    if (!detailHref && !notice.hasDetail) continue;
-    const href =
-      detailHref ||
-      `alumno_avisos_wf?tipo=ag&agenda_id=${notice.id}${notice.studentId ? `&alumno_id=${notice.studentId}` : ""}`;
-    try {
-      const detail = await client.get(href);
-      if (/login_wf/i.test(detail.url)) continue;
-      store(`detail_${notice.studentId || "x"}_${captureKey(href)}`, detail.html);
-      const bodyText = cheerio.load(detail.html)(".imc-contenido, .imc-aviso-detalle, body").first().text();
-      if (bodyText && bodyText.length > 20 && (!notice.body || notice.body === notice.title)) {
-        notice.body = bodyText.replace(/\s+/g, " ").trim().slice(0, 500);
+  // Open aviso details and pull PDFs (Agenda → PDF → Menús) — per student
+  const pdfCache = new Map<string, { att: Attachment; buffer: Buffer }>();
+  for (const notice of notices.slice(0, 50)) {
+    const mid = notice.studentId ? matriculaByStudent.get(notice.studentId) : undefined;
+    const hrefCandidates = [
+      notice.detailHref,
+      notice.id && /^\d+$/.test(notice.id)
+        ? `alumno_avisos_wf?tipo=ag&agenda_id=${notice.id}${notice.studentId ? `&alumno_id=${notice.studentId}` : ""}${mid ? `&matricula_id=${mid}` : ""}`
+        : "",
+      notice.id && /^\d+$/.test(notice.id) ? `alumno_avisos_wf?tipo=ag&agenda_id=${notice.id}` : "",
+    ].filter(Boolean) as string[];
+    if (!hrefCandidates.length && !notice.hasDetail) continue;
+    let detailHtml = "";
+    let detailUrl = "";
+    for (const href of hrefCandidates) {
+      try {
+        const detail = await client.get(href);
+        if (/login_wf/i.test(detail.url)) continue;
+        detailHtml = detail.html;
+        detailUrl = detail.url;
+        store(`detail_${notice.studentId || "x"}_${captureKey(href)}`, detail.html);
+        break;
+      } catch (err) {
+        scrapeErrors.push(`detail ${href}: ${err instanceof Error ? err.message : "error"}`);
       }
-      const docLinks = parseDocumentLinks(detail.html, detail.url);
-      for (const doc of docLinks.slice(0, 8)) {
-        try {
-          const file = await client.getBinary(doc.href);
-          const isPdf =
-            /pdf/i.test(file.contentType) ||
-            /\.pdf(\?|$)/i.test(file.url) ||
-            file.buffer.slice(0, 4).toString() === "%PDF";
-          if (!isPdf || file.buffer.length < 100) continue;
-          const filename =
-            doc.text.replace(/[^\w.\- ]+/g, "_").slice(0, 80) ||
-            file.url.split("/").pop()?.split("?")[0] ||
-            `${notice.title}.pdf`;
-          const att = await storePdf({
-            buffer: file.buffer,
-            filename: filename.endsWith(".pdf") ? filename : `${filename}.pdf`,
-            sourceUrl: file.url,
+    }
+    if (!detailHtml) continue;
+    const docLinks = parseDocumentLinks(detailHtml, detailUrl || "https://familia.edu.gva.es");
+    if (!docLinks.length) {
+      scrapeErrors.push(`sense PDF: ${notice.title.slice(0, 40)} (${notice.studentId || "?"})`);
+    }
+    notice.attachments = notice.attachments || [];
+    for (const doc of docLinks.slice(0, 10)) {
+      try {
+        const resolved = await downloadPdfSmart(client, doc.href, detailUrl);
+        if (!resolved) continue;
+        const { buffer, url, filenameHint } = resolved;
+        const filename = (
+          doc.text.match(/[\w.\- ]+\.pdf/i)?.[0] ||
+          filenameHint ||
+          `${notice.title}.pdf`
+        )
+          .replace(/[^\w.\- ]+/g, "_")
+          .slice(0, 80);
+        const safeName = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+        const hash = shaOf(buffer);
+        const cached = pdfCache.get(hash);
+        let att: Attachment;
+        if (cached) {
+          att = { ...cached.att, studentId: notice.studentId, noticeId: notice.id };
+        } else {
+          att = await storePdf({
+            buffer,
+            filename: safeName,
+            sourceUrl: url,
             title: notice.title,
             noticeId: notice.id,
             studentId: notice.studentId,
           });
-          notice.attachments = [...(notice.attachments || []), att];
-          if (seenPdf.has(att.sha256)) {
-            const existing = menus.find((m) => m.attachmentId === att.id);
-            if (existing && notice.studentId && !existing.studentId) {
-              existing.studentId = notice.studentId;
-              existing.studentName = notice.studentName;
-            }
-            continue;
+          pdfCache.set(att.sha256, { att, buffer });
+          if (!seenPdf.has(att.sha256)) {
+            seenPdf.add(att.sha256);
+            attachments.push(att);
           }
-          seenPdf.add(att.sha256);
-          attachments.push(att);
-          const looksMenu =
-            att.kind === "menu_menjador" ||
-            att.kind === "menu_especial" ||
-            /men[uú]|menjador|comedor|dieta/i.test(
-              `${att.filename} ${notice.title} ${doc.text} ${notice.body || ""}`,
-            );
-          if (looksMenu) {
+        }
+        if (!notice.attachments.some((a) => a.sha256 === att.sha256)) {
+          notice.attachments.push(att);
+        }
+        const looksMenu =
+          att.kind === "menu_menjador" ||
+          att.kind === "menu_especial" ||
+          /men[uú]|menjador|comedor|dieta/i.test(`${att.filename} ${notice.title} ${doc.text}`);
+        if (looksMenu) {
+          const already = menus.some(
+            (m) => m.attachmentId === att.id && m.studentId === notice.studentId,
+          );
+          if (!already) {
             try {
-              const menu = await extractMenuFromPdf(file.buffer, {
+              const buf = cached?.buffer ?? buffer;
+              const menu = await extractMenuFromPdf(buf, {
                 sourceFile: att.filename,
                 centerName: students.find((s) => s.id === notice.studentId)?.center,
               });
@@ -577,24 +608,19 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
                 menu.studentId = notice.studentId;
                 menu.studentName = notice.studentName;
                 menus.push(menu);
-              } else {
-                scrapeErrors.push(`menu buit: ${att.filename}`);
-              }
+              } else scrapeErrors.push(`menu buit: ${att.filename}`);
             } catch (err) {
               scrapeErrors.push(
                 `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
               );
             }
           }
-        } catch (err) {
-          scrapeErrors.push(
-            `pdf ${doc.href}: ${err instanceof Error ? err.message : "error"}`,
-          );
         }
+      } catch (err) {
+        scrapeErrors.push(`pdf ${doc.href}: ${err instanceof Error ? err.message : "error"}`);
       }
-    } catch (err) {
-      scrapeErrors.push(`detail ${href}: ${err instanceof Error ? err.message : "error"}`);
     }
+    if (notice.attachments.length) notice.body = notice.title;
   }
 
   state.structure = analyzePages(pages);
@@ -721,4 +747,52 @@ function summarizeMarkers(html: string) {
     "imc-sesion-caducada",
   ];
   return markers.filter((m) => html.includes(m));
+}
+
+function shaOf(buf: Buffer) {
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+/** Download a PDF; if the URL returns an HTML viewer, dig for nested PDF links. */
+async function downloadPdfSmart(
+  client: WebFamiliaClient,
+  href: string,
+  refererUrl: string,
+): Promise<{ buffer: Buffer; url: string; filenameHint?: string } | null> {
+  const file = await client.getBinary(href);
+  const isPdf =
+    /pdf/i.test(file.contentType) ||
+    /\.pdf(\?|$)/i.test(file.url) ||
+    file.buffer.slice(0, 4).toString() === "%PDF";
+  if (isPdf && file.buffer.length >= 100) {
+    return {
+      buffer: file.buffer,
+      url: file.url,
+      filenameHint: file.url.split("/").pop()?.split("?")[0],
+    };
+  }
+  // HTML wrapper / visor: parse again
+  const asText = file.buffer.toString("latin1");
+  if (!/<html|<body|documento|pdf/i.test(asText)) return null;
+  const nested = parseDocumentLinks(asText, refererUrl || file.url);
+  for (const n of nested.slice(0, 5)) {
+    if (n.href === href) continue;
+    try {
+      const inner = await client.getBinary(n.href);
+      const ok =
+        /pdf/i.test(inner.contentType) ||
+        /\.pdf(\?|$)/i.test(inner.url) ||
+        inner.buffer.slice(0, 4).toString() === "%PDF";
+      if (ok && inner.buffer.length >= 100) {
+        return {
+          buffer: inner.buffer,
+          url: inner.url,
+          filenameHint: n.text.match(/[\w.\- ]+\.pdf/i)?.[0] || inner.url.split("/").pop(),
+        };
+      }
+    } catch {
+      // try next
+    }
+  }
+  return null;
 }

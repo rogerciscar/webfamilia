@@ -81,16 +81,13 @@ app.get("/api/health", (c) =>
 );
 
 app.get("/api/session", async (c) => {
-  const browser = requireBrowserSession(c);
+  const browser = await requireBrowserSession(c);
   const session = await getStatus({
     browserAuth: Boolean(browser),
     sessionMode: browser?.mode,
   });
   if (browser) {
-    const dash =
-      browser.mode === "mock"
-        ? await getDashboard()
-        : getCachedDashboard() ?? (await getDashboard().catch(() => null));
+    const dash = await getDashboard().catch(() => null);
     if (dash) return c.json({ ...session, dashboard: dash });
   }
   return c.json(session);
@@ -101,7 +98,7 @@ app.post("/api/session/mock", async (c) => {
     return c.json({ ok: false, error: "Mode exemple desactivat en producció." }, 403);
   }
   const dashboard = useMock();
-  createBrowserSession("mock", c);
+  await createBrowserSession("mock", c);
   return c.json({
     ok: true,
     dashboard,
@@ -140,7 +137,7 @@ app.post("/api/session/login", async (c) => {
       );
     }
     const dashboard = await loginLive({ ...body, masterPassword });
-    createBrowserSession("live", c);
+    await createBrowserSession("live", c);
     return c.json({
       ok: true,
       dashboard,
@@ -163,7 +160,7 @@ app.post("/api/session/unlock", async (c) => {
       masterPassword: body.masterPassword,
       password: body.password,
     });
-    createBrowserSession("live", c);
+    await createBrowserSession("live", c);
     return c.json({
       ok: true,
       dashboard,
@@ -176,18 +173,18 @@ app.post("/api/session/unlock", async (c) => {
 });
 
 app.post("/api/session/forget", async (c) => {
-  clearBrowserSession(c);
+  await clearBrowserSession(c);
   await forgetCredentials();
   return c.json({ ok: true, session: await getStatus({ browserAuth: false }) });
 });
 
 app.post("/api/session/logout", async (c) => {
-  clearBrowserSession(c);
+  await clearBrowserSession(c);
   return c.json({ ok: true, session: await getStatus({ browserAuth: false }) });
 });
 
 app.get("/api/dashboard", async (c) => {
-  const browser = requireBrowserSession(c);
+  const browser = await requireBrowserSession(c);
   if (!browser) return c.json({ ok: false, error: "Cal iniciar sessió." }, 401);
   try {
     const refresh = c.req.query("refresh") === "1";
@@ -198,27 +195,27 @@ app.get("/api/dashboard", async (c) => {
   }
 });
 
-app.get("/api/debug/captures", (c) => {
-  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+app.get("/api/debug/captures", async (c) => {
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   return c.json(getCaptures());
 });
 
-app.get("/api/debug/captures/:key", (c) => {
-  if (!requireBrowserSession(c)) return c.text("Unauthorized", 401);
+app.get("/api/debug/captures/:key", async (c) => {
+  if (!(await requireBrowserSession(c))) return c.text("Unauthorized", 401);
   const html = getCaptureHtml(c.req.param("key"));
   if (!html) return c.text("Not found", 404);
   return c.html(html);
 });
 
-app.get("/api/admin/structure", (c) => {
-  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+app.get("/api/admin/structure", async (c) => {
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   const structure = getStructureReport();
   if (!structure) return c.json({ ok: false, error: "Encara no hi ha estructura. Fes login o Rescanejar." }, 404);
   return c.json({ ok: true, structure, captures: getCaptures() });
 });
 
 app.post("/api/admin/scrape", async (c) => {
-  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   try {
     const result = await rescanLive();
     return c.json({
@@ -233,7 +230,7 @@ app.post("/api/admin/scrape", async (c) => {
 });
 
 app.get("/api/attachments/:id", async (c) => {
-  if (!requireBrowserSession(c)) return c.text("Unauthorized", 401);
+  if (!(await requireBrowserSession(c))) return c.text("Unauthorized", 401);
   const id = c.req.param("id");
   const dash = getCachedDashboard() ?? (await getDashboard().catch(() => null));
   const att = dash?.attachments?.find((a: Attachment) => a.id === id);
@@ -251,13 +248,13 @@ app.get("/api/attachments/:id", async (c) => {
 });
 
 app.get("/api/schedule/custom", async (c) => {
-  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   const studentId = c.req.query("studentId") || undefined;
   return c.json({ ok: true, slots: await listCustomSlots(studentId) });
 });
 
 app.post("/api/schedule/custom", async (c) => {
-  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   try {
     const body = z
       .object({
@@ -279,7 +276,7 @@ app.post("/api/schedule/custom", async (c) => {
 });
 
 app.delete("/api/schedule/custom/:id", async (c) => {
-  if (!requireBrowserSession(c)) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
   await deleteCustomSlot(c.req.param("id"));
   const dashboard = await getDashboard();
   return c.json({ ok: true, dashboard });

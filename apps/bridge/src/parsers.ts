@@ -145,20 +145,13 @@ export function parseNotices(html: string, ctx?: StudentCtx): Notice[] {
   return notices;
 }
 
-/** PDF / document links inside aviso detail HTML. */
+/** PDF / document links inside aviso detail HTML (WF uses many shapes). */
 export function parseDocumentLinks(html: string, baseUrl = "https://familia.edu.gva.es") {
   const $ = cheerio.load(html);
   const links: { href: string; text: string }[] = [];
-  $("a[href], iframe[src], embed[src], object[data], source[src]").each((_, el) => {
-    const href =
-      $(el).attr("href") ||
-      $(el).attr("src") ||
-      $(el).attr("data") ||
-      "";
-    if (!href) return;
-    if (!/\.pdf(\?|$)/i.test(href) && !/application\/pdf|descarg|download|visor|documento/i.test(href + ($(el).text() || ""))) {
-      if (!/\.pdf(\?|$)/i.test(href)) return;
-    }
+  const push = (rawHref: string | undefined, text = "") => {
+    const href = (rawHref || "").trim();
+    if (!href || href === "#" || /^javascript:/i.test(href)) return;
     let absolute = href;
     try {
       absolute = new URL(href, baseUrl).toString();
@@ -167,12 +160,64 @@ export function parseDocumentLinks(html: string, baseUrl = "https://familia.edu.
     }
     links.push({
       href: absolute,
-      text: clean($(el).text() || $(el).attr("title") || href.split("/").pop() || "document.pdf"),
+      text: clean(text || href.split("/").pop() || "document.pdf"),
     });
+  };
+  const looksDoc = (href: string, text: string) =>
+    /\.pdf(\?|$)/i.test(href) ||
+    /application\/pdf/i.test(href) ||
+    /documento|adjunto|fichero|descarg|download|visor|attachment|fileid|id_?doc|tipo=pdf|content-disposition/i.test(
+      `${href} ${text}`,
+    );
+
+  $("a[href], a[data-href], a[data-url], a[data-link], a[data-file]").each((_, el) => {
+    const text = clean($(el).text() || $(el).attr("title") || "");
+    const candidates = [
+      $(el).attr("href"),
+      $(el).attr("data-href"),
+      $(el).attr("data-url"),
+      $(el).attr("data-link"),
+      $(el).attr("data-file"),
+      $(el).attr("data-documento"),
+    ];
+    for (const c of candidates) {
+      if (c && looksDoc(c, text)) push(c, text);
+    }
   });
-  // Also raw URLs in scripts/onclick
-  const raw = html.match(/https?:\/\/[^"'>\s]+\.pdf(?:\?[^"'>\s]*)?/gi) || [];
-  for (const href of raw) links.push({ href, text: href.split("/").pop() || "doc.pdf" });
+  $("iframe[src], embed[src], object[data], source[src]").each((_, el) => {
+    const href = $(el).attr("src") || $(el).attr("data") || "";
+    if (looksDoc(href, "")) push(href, "document.pdf");
+  });
+  $("[onclick]").each((_, el) => {
+    const onclick = $(el).attr("onclick") || "";
+    const text = clean($(el).text() || $(el).attr("title") || "");
+    const matches = [
+      ...onclick.matchAll(/(?:location(?:\.href)?|document\.location)\s*=\s*['"]([^'"]+)['"]/gi),
+      ...onclick.matchAll(/window\.open\(\s*['"]([^'"]+)['"]/gi),
+      ...onclick.matchAll(/['"]([^'"]*(?:\.pdf|documento|descarg|visor)[^'"]*)['"]/gi),
+    ];
+    for (const m of matches) {
+      if (looksDoc(m[1], text)) push(m[1], text);
+    }
+  });
+  // Raw URLs in HTML/scripts
+  const raw =
+    html.match(
+      /https?:\/\/[^"'>\s]+(?:\.pdf)(?:\?[^"'>\s]*)?|["']([^"'>\s]*(?:documento_wf|visor_documento|descarg\w*_wf|adjunto)[^"'>\s]*)["']/gi,
+    ) || [];
+  for (const hit of raw) {
+    const href = hit.replace(/^["']|["']$/g, "");
+    if (looksDoc(href, "")) push(href, href.split("/").pop() || "doc.pdf");
+  }
+  // Relative WF document endpoints without .pdf
+  const rel =
+    html.match(
+      /(?:href|src|data-href|data-url)\s*=\s*["']([^"']*(?:documento|adjunto|visor|descarg)[^"']*)["']/gi,
+    ) || [];
+  for (const attr of rel) {
+    const m = attr.match(/["']([^"']+)["']/);
+    if (m) push(m[1], m[1].split("/").pop() || "doc.pdf");
+  }
   return uniqueBy(links, (l) => l.href);
 }
 
