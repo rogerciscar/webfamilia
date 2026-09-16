@@ -651,8 +651,8 @@ label {
   display: grid;
   grid-template-columns: 5.8rem 1fr auto;
   gap: 0.45rem;
-  align-items: center;
-  padding: 0.28rem 0.55rem;
+  align-items: start;
+  padding: 0.35rem 0.55rem;
   border-bottom: 1px solid var(--line);
   font-size: 0.8rem;
   min-height: 0;
@@ -663,11 +663,14 @@ label {
   font-weight: 700;
   color: var(--ink);
   white-space: nowrap;
+  padding-top: 0.05rem;
 }
 .horari-subject {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
   font-weight: 500;
   color: var(--ink);
 }
@@ -682,8 +685,9 @@ label {
   min-height: 26px;
   font-size: 0.9rem;
   line-height: 1;
+  align-self: center;
 }
-.horari-del-spacer { width: 1.4rem; }
+.horari-del-spacer { width: 1.4rem; align-self: center; }
 .horari-row.slot-custom {
   background: color-mix(in srgb, var(--coral) 12%, white);
   box-shadow: inset 3px 0 0 var(--coral);

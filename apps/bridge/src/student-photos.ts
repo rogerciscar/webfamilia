@@ -142,6 +142,13 @@ export async function saveStudentPhoto(input: {
     `,
     [studentId, meta.mime, meta.bytes, input.buffer],
   );
+  const verify = await pool!.query(
+    `SELECT bytes FROM pont_student_photos WHERE student_id = $1 LIMIT 1`,
+    [studentId],
+  );
+  if (!verify.rows[0]) {
+    throw new Error("La foto no s'ha pogut verificar a Postgres després de desar.");
+  }
   // Best-effort mirror on volume/disk (optional; DB is source of truth)
   try {
     await ensureDir();
@@ -152,7 +159,7 @@ export async function saveStudentPhoto(input: {
     console.warn("[photos] disk mirror skipped:", err);
   }
   console.log(
-    `[photos] saved student=${studentId} bytes=${meta.bytes} mime=${meta.mime} backend=postgres`,
+    `[photos] saved student=${studentId} bytes=${meta.bytes} mime=${meta.mime} backend=postgres verified=${verify.rows[0].bytes}`,
   );
   return meta;
 }
@@ -224,5 +231,16 @@ export function photoPublicUrl(studentId: string) {
 }
 
 export function photosBackend() {
-  return pool ? "postgres" : "file";
+  return pool ? "postgres" : "none";
+}
+
+export async function photosCount(): Promise<number> {
+  if (!pool) return 0;
+  try {
+    await ensurePg();
+    const res = await pool!.query(`SELECT COUNT(*)::int AS n FROM pont_student_photos`);
+    return Number(res.rows[0]?.n ?? 0);
+  } catch {
+    return 0;
+  }
 }

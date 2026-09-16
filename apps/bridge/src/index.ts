@@ -38,6 +38,7 @@ import {
 import {
   deleteStudentPhoto,
   photosBackend,
+  photosCount,
   readStudentPhoto,
   saveStudentPhoto,
 } from "./student-photos";
@@ -90,6 +91,7 @@ app.get("/api/health", async (c) => {
     ),
     scrape: session.scrape,
     photos: photosBackend(),
+    photosStored: await photosCount(),
   });
 });
 
@@ -351,7 +353,7 @@ if (webRootAbs && webRootRel) {
     c.header("pragma", "no-cache");
     c.header("expires", "0");
     c.header("surrogate-control", "no-store");
-    c.header("x-webfamilia-build", "0.2.8");
+    c.header("x-webfamilia-build", "0.2.9");
     return c.html(html);
   };
   // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).

@@ -304,7 +304,11 @@ export function fetchStructure() {
 
 export async function uploadStudentPhoto(studentId: string, file: Blob, filename = "carnet.jpg") {
   const body = new FormData();
-  body.append("file", file, filename);
+  const typed =
+    typeof File !== "undefined"
+      ? new File([file], filename, { type: file.type || "image/jpeg" })
+      : file;
+  body.append("file", typed, filename);
   const res = await fetch(`/api/students/${encodeURIComponent(studentId)}/photo`, {
     method: "POST",
     credentials: "include",

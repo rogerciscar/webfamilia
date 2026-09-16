@@ -196,7 +196,7 @@ export async function loginLive(input: {
       return await buildDashboard(client);
     } catch (dashError) {
       const students = parseStudents(page.html);
-      const dashboard: Dashboard = {
+      const partial: Dashboard = {
         source: "live",
         capturedAt: new Date().toISOString(),
         students,
@@ -223,12 +223,12 @@ export async function loginLive(input: {
           note: "Login OK, però el scrape parcial ha fallat.",
         },
       };
-      state.lastDashboard = dashboard;
+      state.lastDashboard = partial;
       state.lastError =
         dashError instanceof Error
           ? `Login OK, però el scrape parcial ha fallat: ${dashError.message}`
           : "Login OK, scrape parcial fallit";
-      return dashboard;
+      return mergeCustomIntoDashboard(partial);
     }
   } catch (error) {
     state.client = null;
@@ -418,14 +418,18 @@ async function mergeCustomIntoDashboard(dash: Dashboard): Promise<Dashboard> {
     custom.map((s) => ({ ...s, custom: true as const })),
     (s) => `${s.studentId || ""}:${s.id}`,
   );
-  const photoIds = new Set(await listPhotoStudentIds());
-  const students = dash.students.map((s) =>
-    photoIds.has(s.id)
-      ? { ...s, hasPhoto: true, photoUrl: photoPublicUrl(s.id) }
-      : { ...s, hasPhoto: false, photoUrl: undefined },
-  );
+  const photoIds = new Set((await listPhotoStudentIds()).map((id) => String(id)));
+  const students = dash.students.map((s) => {
+    const id = String(s.id);
+    return photoIds.has(id)
+      ? { ...s, id, hasPhoto: true, photoUrl: photoPublicUrl(id) }
+      : { ...s, id, hasPhoto: false, photoUrl: undefined };
+  });
   const student =
-    students.find((s) => s.id === dash.student?.id) ?? students[0] ?? dash.student ?? null;
+    students.find((s) => s.id === String(dash.student?.id ?? "")) ??
+    students[0] ??
+    dash.student ??
+    null;
   return { ...dash, schedule, students, student };
 }
 
@@ -934,7 +938,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   void saveDashboardCache(dashboard).catch((err) =>
     console.error("[webfamilia] dashboard cache save failed:", err),
   );
-  return dashboard;
+  // Re-attach Postgres photos + custom slots after every scrape/login.
+  return mergeCustomIntoDashboard(dashboard);
 }
 
 function tagStudent<T extends object>(
