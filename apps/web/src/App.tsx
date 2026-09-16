@@ -610,6 +610,13 @@ export default function App() {
             Oblidar login
           </button>
         )}
+        {showAdmin && (
+          <p className="hint">
+            Rescanejar torna a demanar les pàgines a Web Família amb la sessió actual,
+            aplica els parsers d&apos;ara mateix i refresca el dashboard. El JSON és
+            diagnòstic (no “aprèn” sol una estructura nova).
+          </p>
+        )}
         {showAdmin && structureJson && <pre>{structureJson}</pre>}
         {showAdmin && !structureJson && (
           <p className="hint">Prem Admin per capturar l&apos;estructura HTML en viu.</p>
