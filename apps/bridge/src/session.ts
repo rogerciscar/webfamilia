@@ -6,6 +6,7 @@ import {
   parseMessages,
   parseNotices,
   parseStudents,
+  pageScore,
 } from "./parsers";
 import { mockDashboard } from "./mock";
 import { extractNavLinks, WebFamiliaClient } from "./webfamilia";
@@ -17,6 +18,7 @@ import {
   saveCredentials,
   vaultExists,
 } from "./vault";
+import * as cheerio from "cheerio";
 
 const CANDIDATE_PATHS = [
   "main_wf",
@@ -28,6 +30,15 @@ const CANDIDATE_PATHS = [
   "horario_wf",
   "comportamientos_wf",
   "evaluaciones_wf",
+  "calificaciones_wf",
+  "asistencia_wf",
+  "retrasos_wf",
+  "comunicados_wf",
+  "tutorias_wf",
+  "agenda_wf",
+  "boletines_wf",
+  "seleccion_alumno_wf",
+  "alumnos_wf",
 ];
 
 type RuntimeState = {
@@ -192,53 +203,121 @@ export function getCaptureHtml(key: string) {
 
 async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
   const pages: Record<string, string> = {};
+  if (client.lastHtml) {
+    pages.main = client.lastHtml;
+    state.captures.main = client.lastHtml;
+  }
   const nav = extractNavLinks(client.lastHtml || "");
   const discovered = nav
-    .map((l) => l.href.split("/").pop() || l.href)
-    .filter((h) => /_wf/i.test(h));
-  const targets = unique([...discovered, ...CANDIDATE_PATHS]).slice(0, 12);
+    .map((l) => normalizeTarget(l.href))
+    .filter((h): h is string => Boolean(h));
+  const targets = unique([...discovered, ...CANDIDATE_PATHS]).slice(0, 30);
   for (const target of targets) {
     try {
       const page = await client.get(target);
+      if (/login_wf/i.test(page.url)) continue;
       pages[target] = page.html;
       state.captures[target] = page.html;
+      // Follow secondary links inside each page (one level)
+      const inner = extractNavLinks(page.html)
+        .map((l) => normalizeTarget(l.href))
+        .filter((h): h is string => Boolean(h) && !pages[h!])
+        .slice(0, 6);
+      for (const next of inner) {
+        try {
+          const sub = await client.get(next);
+          if (/login_wf/i.test(sub.url)) continue;
+          pages[next] = sub.html;
+          state.captures[next] = sub.html;
+        } catch {
+          // ignore
+        }
+      }
     } catch {
       // route may not exist for this center/user
     }
   }
-  if (!pages.main_wf && client.lastHtml) pages.main_wf = client.lastHtml;
-  const htmlBlob = Object.values(pages).join("\n");
-  const students = parseStudents(htmlBlob);
+
+  const students = parseStudents(Object.values(pages).join("\n"));
+  const notices = pickBest(pages, parseNotices, /avis|aviso|comunicat|comunicado|noticia/i);
+  const absences = pickBest(pages, parseAbsences, /falta|retard|retraso|asist|absen/i);
+  const grades = pickBest(pages, parseGrades, /nota|calific|avaluaci|evaluaci|boletin|butllet/i);
+  const messages = pickBest(pages, parseMessages, /missatge|mensaje|correu|correo|bandeja|mail/i);
+  const activities = pickBest(pages, parseActivities, /activitat|actividad|extraescol|agenda|sortida|salida/i);
+  const behaviors = pickBest(pages, parseBehaviors, /conducta|comport|observac|incidencia/i);
+
+  const diagnostics = {
+    pages: Object.entries(pages).map(([key, html]) => ({
+      key,
+      bytes: html.length,
+      title: cheerio.load(html)("title").first().text().replace(/\s+/g, " ").trim(),
+      links: extractNavLinks(html).length,
+    })),
+    navLinks: nav.slice(0, 40),
+    note:
+      notices.length + absences.length + grades.length + messages.length === 0
+        ? "S'ha capturat HTML però els parsers no han trobat files. Mira /api/debug/captures"
+        : undefined,
+  };
+
   const dashboard: Dashboard = {
     source: "live",
     capturedAt: new Date().toISOString(),
     students,
     student: students[0] ?? null,
-    notices: firstNonEmpty(pages, ["avisos_wf", "main_wf"], parseNotices),
-    absences: firstNonEmpty(pages, ["faltas_wf", "main_wf"], parseAbsences),
-    grades: firstNonEmpty(pages, ["notas_wf", "evaluaciones_wf", "main_wf"], parseGrades),
-    messages: firstNonEmpty(pages, ["mensajes_wf", "main_wf"], parseMessages),
-    activities: firstNonEmpty(pages, ["actividades_wf", "main_wf"], parseActivities),
-    behaviors: firstNonEmpty(pages, ["comportamientos_wf", "main_wf"], parseBehaviors),
+    notices,
+    absences,
+    grades,
+    messages,
+    activities,
+    behaviors,
+    diagnostics,
   };
   state.lastDashboard = dashboard;
   return dashboard;
 }
 
-function firstNonEmpty<T>(
-  pages: Record<string, string>,
-  keys: string[],
-  parse: (html: string) => T[],
-) {
-  for (const key of keys) {
-    const html = pages[key];
-    if (!html) continue;
-    const items = parse(html);
-    if (items.length) return items;
+function normalizeTarget(href: string) {
+  const raw = href.trim();
+  if (!raw || raw === "#" || raw.startsWith("mailto:") || raw.startsWith("tel:")) return null;
+  let pathPart = raw;
+  let search = "";
+  if (/^https?:/i.test(raw)) {
+    if (!/familia\.edu\.gva\.es/i.test(raw)) return null;
+    const u = new URL(raw);
+    pathPart = u.pathname;
+    search = u.search;
+  } else {
+    const q = raw.indexOf("?");
+    if (q >= 0) {
+      pathPart = raw.slice(0, q);
+      search = raw.slice(q);
+    }
   }
-  return [] as T[];
+  const file = pathPart.split("/").filter(Boolean).pop() || "";
+  if (!file || /login_wf/i.test(file)) return null;
+  return file + search;
+}
+
+function pickBest<T>(
+  pages: Record<string, string>,
+  parse: (html: string) => T[],
+  keywords: RegExp,
+) {
+  let best: T[] = [];
+  let bestScore = -1;
+  for (const [key, html] of Object.entries(pages)) {
+    const items = parse(html);
+    if (!items.length) continue;
+    const score = items.length * 10 + pageScore(key, html, keywords);
+    if (score > bestScore) {
+      bestScore = score;
+      best = items;
+    }
+  }
+  return best;
 }
 
 function unique(items: string[]) {
-  return [...new Set(items.map((i) => i.replace(/[?#].*$/, "")))];
+  return [...new Set(items.map((i) => i.replace(/^\.\//, "")))];
 }

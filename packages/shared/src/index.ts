@@ -56,6 +56,13 @@ export type Behavior = {
   kind?: string;
 };
 
+export type CaptureInfo = {
+  key: string;
+  bytes: number;
+  title?: string;
+  links?: number;
+};
+
 export type Dashboard = {
   student: Student | null;
   students: Student[];
@@ -67,6 +74,11 @@ export type Dashboard = {
   behaviors: Behavior[];
   source: "mock" | "live";
   capturedAt: string;
+  diagnostics?: {
+    pages: CaptureInfo[];
+    navLinks: { href: string; text: string }[];
+    note?: string;
+  };
 };
 
 export type SessionStatus = {

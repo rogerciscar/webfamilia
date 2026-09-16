@@ -384,7 +384,7 @@ export default function App() {
       )}
       {tab === "avisos" && (
         <Section title="Avisos" count={dashboard.notices.length}>
-          {dashboard.notices.length === 0 && <Empty />}
+          {dashboard.notices.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
             {dashboard.notices.map((n, i) => (
               <article className="item" key={n.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -402,7 +402,7 @@ export default function App() {
       )}
       {tab === "faltes" && (
         <Section title="Faltes i retards" count={dashboard.absences.length}>
-          {dashboard.absences.length === 0 && <Empty />}
+          {dashboard.absences.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
             {dashboard.absences.map((a, i) => (
               <article className="item" key={a.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -422,7 +422,7 @@ export default function App() {
       )}
       {tab === "notes" && (
         <Section title="Notes" count={dashboard.grades.length}>
-          {dashboard.grades.length === 0 && <Empty />}
+          {dashboard.grades.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
             {dashboard.grades.map((g, i) => (
               <article className="item" key={g.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -439,7 +439,7 @@ export default function App() {
       )}
       {tab === "missatges" && (
         <Section title="Missatges" count={dashboard.messages.length}>
-          {dashboard.messages.length === 0 && <Empty />}
+          {dashboard.messages.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
             {dashboard.messages.map((m, i) => (
               <article className="item" key={m.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -457,7 +457,7 @@ export default function App() {
       )}
       {tab === "activitats" && (
         <Section title="Activitats" count={dashboard.activities.length}>
-          {dashboard.activities.length === 0 && <Empty />}
+          {dashboard.activities.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
             {dashboard.activities.map((a, i) => (
               <article className="item" key={a.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -474,7 +474,7 @@ export default function App() {
       )}
       {tab === "conducta" && (
         <Section title="Conducta" count={dashboard.behaviors.length}>
-          {dashboard.behaviors.length === 0 && <Empty />}
+          {dashboard.behaviors.length === 0 && <Empty diagnostics={dashboard.diagnostics} />}
           <div className="list">
             {dashboard.behaviors.map((b, i) => (
               <article className="item" key={b.id} style={{ animationDelay: `${i * 40}ms` }}>
@@ -513,11 +513,27 @@ function Section({
   );
 }
 
-function Empty() {
+function Empty({ diagnostics }: { diagnostics?: Dashboard["diagnostics"] }) {
   return (
-    <p className="empty">
-      Encara no hi ha dades parsejades aquí. En mode en viu, el pont captura l'HTML
-      oficial i n'extreu taules; si el centre usa una plantilla rara, es pot afinar el parser.
-    </p>
+    <div className="empty">
+      <p>
+        Encara no hi ha dades parsejades aquí. El pont ha entrat, però no ha sabut
+        extreure files d&apos;aquesta secció.
+      </p>
+      {diagnostics?.note && <p>{diagnostics.note}</p>}
+      {diagnostics?.pages?.length ? (
+        <p className="hint">
+          Pàgines capturades:{" "}
+          {diagnostics.pages
+            .slice(0, 8)
+            .map((p) => `${p.key}${p.title ? ` (${p.title})` : ""}`)
+            .join(" · ")}
+        </p>
+      ) : null}
+      <p className="hint">
+        Obri <a href="/api/debug/captures">/api/debug/captures</a> i digues quines
+        claus hi ha per afinar el parser.
+      </p>
+    </div>
   );
 }

@@ -67,6 +67,11 @@ export type Dashboard = {
   behaviors: Behavior[];
   source: "mock" | "live";
   capturedAt: string;
+  diagnostics?: {
+    pages: { key: string; bytes: number; title?: string; links?: number }[];
+    navLinks: { href: string; text: string }[];
+    note?: string;
+  };
 };
 
 export type SessionStatus = {

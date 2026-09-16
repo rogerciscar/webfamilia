@@ -222,11 +222,26 @@ export function extractNavLinks(html: string) {
   const $ = cheerio.load(html);
   const links: { href: string; text: string }[] = [];
   $("a[href]").each((_, el) => {
-    const href = $(el).attr("href") ?? "";
+    const href = ($(el).attr("href") ?? "").trim();
     const text = $(el).text().replace(/\s+/g, " ").trim();
-    if (!href || !text) return;
-    if (!/_wf|myitaca/i.test(href)) return;
-    links.push({ href, text });
+    if (!href || href === "#" || href.startsWith("javascript:")) return;
+    links.push({ href, text: text || href });
+  });
+  $("[onclick]").each((_, el) => {
+    const onclick = $(el).attr("onclick") || "";
+    const m =
+      onclick.match(/(?:location(?:\.href)?|document\.location)\s*=\s*['"]([^'"]+)['"]/i) ||
+      onclick.match(/window\.open\(\s*['"]([^'"]+)['"]/i);
+    if (!m) return;
+    const text = $(el).text().replace(/\s+/g, " ").trim();
+    links.push({ href: m[1], text: text || m[1] });
+  });
+  $("[data-href], [data-url], [data-link]").each((_, el) => {
+    const href =
+      $(el).attr("data-href") || $(el).attr("data-url") || $(el).attr("data-link") || "";
+    if (!href) return;
+    const text = $(el).text().replace(/\s+/g, " ").trim();
+    links.push({ href, text: text || href });
   });
   return uniqueBy(links, (l) => `${l.href}|${l.text}`);
 }
