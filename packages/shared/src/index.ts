@@ -116,6 +116,8 @@ export type ScheduleSlot = {
   studentId?: string;
   studentName?: string;
   custom?: boolean;
+  /** One-off personal event on this calendar day (YYYY-MM-DD). */
+  dateIso?: string;
 };
 
 export type MenuNutrition = {

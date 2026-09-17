@@ -94,6 +94,8 @@ export async function listCustomSlots(studentId?: string) {
 export async function upsertCustomSlot(slot: Omit<ScheduleSlot, "id" | "custom"> & { id?: string }) {
   const store = await readStore();
   const id = slot.id || `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const dateIso =
+    slot.dateIso && /^\d{4}-\d{2}-\d{2}/.test(slot.dateIso) ? slot.dateIso.slice(0, 10) : undefined;
   const next: ScheduleSlot = {
     id,
     day: slot.day,
@@ -103,6 +105,7 @@ export async function upsertCustomSlot(slot: Omit<ScheduleSlot, "id" | "custom">
     studentId: slot.studentId,
     studentName: slot.studentName,
     custom: true,
+    ...(dateIso ? { dateIso } : {}),
   };
   const idx = store.slots.findIndex((s) => s.id === id);
   if (idx >= 0) store.slots[idx] = next;

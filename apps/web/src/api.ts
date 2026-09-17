@@ -108,6 +108,8 @@ export type ScheduleSlot = {
   studentId?: string;
   studentName?: string;
   custom?: boolean;
+  /** One-off personal event on this calendar day (YYYY-MM-DD). */
+  dateIso?: string;
 };
 
 export type MenuDay = {
@@ -274,6 +276,7 @@ export function saveCustomSlot(body: {
   subject: string;
   studentId?: string;
   studentName?: string;
+  dateIso?: string;
 }) {
   return request<{ slot: ScheduleSlot; dashboard: Dashboard }>("/api/schedule/custom", {
     method: "POST",

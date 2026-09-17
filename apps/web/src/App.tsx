@@ -21,6 +21,7 @@ import {
 import { PhotoCropper } from "./PhotoCropper";
 import { PdfViewer } from "./PdfViewer";
 import { InstallAppButton } from "./InstallAppButton";
+import { MonthCalendar } from "./MonthCalendar";
 import {
   menuSlotsForDay,
   normalizeDay,
@@ -35,10 +36,12 @@ type Tab =
   | "qualificacions"
   | "assignatures"
   | "menus"
-  | "horari";
+  | "horari"
+  | "calendari";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "horari", label: "Horari" },
+  { id: "calendari", label: "Cal." },
   { id: "assignatures", label: "Assign." },
   { id: "agenda", label: "Agenda" },
   { id: "assistencies", label: "Assist." },
@@ -49,7 +52,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.6";
+const APP_VERSION = "0.3.7";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -455,7 +458,7 @@ export default function App() {
   const activities = forStudent(dashboard.activities, sid);
   const subjects = forStudent(dashboard.subjects ?? [], sid);
   const daySlots = schedule
-    .filter((s) => normalizeDay(s.day) === scheduleDay)
+    .filter((s) => !s.dateIso && normalizeDay(s.day) === scheduleDay)
     .slice()
     .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
 
@@ -481,11 +484,37 @@ export default function App() {
     }
   }
 
+  async function onAddCalendarSlot(input: {
+    day: string;
+    dateIso: string;
+    start: string;
+    end: string;
+    subject: string;
+  }) {
+    if (!sid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await saveCustomSlot({
+        day: input.day,
+        dateIso: input.dateIso,
+        start: input.start,
+        end: input.end,
+        subject: input.subject,
+        studentId: sid,
+        studentName: student?.name,
+      });
+      setDashboard(res.dashboard);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No s'ha pogut afegir");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onDeleteSlot(id: string, label?: string) {
     const ok = window.confirm(
-      label
-        ? `Vols esborrar «${label}» de l'horari?`
-        : "Vols esborrar aquest bloc de l'horari?",
+      label ? `Vols esborrar «${label}»?` : "Vols esborrar aquest bloc?",
     );
     if (!ok) return;
     setBusy(true);
@@ -971,6 +1000,19 @@ export default function App() {
               +
             </button>
           </form>
+        </Section>
+      )}
+      {tab === "calendari" && (
+        <Section title="Calendari" count={activities.length}>
+          <MonthCalendar
+            activities={activities}
+            schedule={forStudent(dashboard.schedule ?? [], sid)}
+            studentId={sid}
+            studentName={student?.name}
+            busy={busy}
+            onAddCustom={onAddCalendarSlot}
+            onDeleteCustom={onDeleteSlot}
+          />
         </Section>
       )}
     </div>
