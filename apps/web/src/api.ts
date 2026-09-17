@@ -104,6 +104,7 @@ export type CustomEventKind = "puntual" | "setmanal";
 export type ScheduleSlot = {
   id: string;
   day: string;
+  days?: string[];
   start?: string;
   end?: string;
   subject: string;
@@ -276,7 +277,8 @@ export function fetchDashboard(refresh = false) {
 
 export function saveCustomSlot(body: {
   id?: string;
-  day: string;
+  day?: string;
+  days?: string[];
   start?: string;
   end?: string;
   subject: string;

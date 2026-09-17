@@ -277,7 +277,8 @@ app.post("/api/schedule/custom", async (c) => {
     const body = z
       .object({
         id: z.string().optional(),
-        day: z.string().min(1),
+        day: z.string().optional().default(""),
+        days: z.array(z.string().min(1)).optional(),
         start: z.string().optional(),
         end: z.string().optional(),
         subject: z.string().min(1),

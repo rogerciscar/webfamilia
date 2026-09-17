@@ -5,8 +5,10 @@ import {
   buildMonthGrid,
   customEventsForMonth,
   formatEventTime,
+  formatWeekdaysLabel,
   monthLabelCa,
   pad2,
+  slotWeekdays,
   todayIsoLocal,
   weekdayHeaders,
   weekdayNameFromIso,
@@ -106,7 +108,7 @@ export function MonthCalendar({
       <div className="cal-legend" aria-hidden="true">
         <span className="cal-leg cal-leg-escola">Escola</span>
         <span className="cal-leg cal-leg-puntual">Puntual</span>
-        <span className="cal-leg cal-leg-own">Setmanal</span>
+        <span className="cal-leg cal-leg-own">Període</span>
       </div>
       <div className="cal-grid" role="grid" aria-label={monthLabelCa(cursor.y, cursor.m0)}>
         {weekdayHeaders().map((h) => (
@@ -224,7 +226,8 @@ function DayEventRow({
     );
   }
   const time = formatEventTime(event.start, event.end);
-  const kindLabel = event.kind === "puntual" ? "Puntual" : "Setmanal";
+  const daysLabel = formatWeekdaysLabel(slotWeekdays(event.slot));
+  const kindLabel = event.kind === "puntual" ? "Puntual" : "Període";
   return (
     <li className={`cal-event cal-event-${event.kind}`}>
       <span className="cal-event-kind">{kindLabel}</span>
@@ -232,6 +235,9 @@ function DayEventRow({
         {time ? <span className="cal-event-time">{time}</span> : null}
         <strong>{event.title}</strong>
         {event.place ? <span className="cal-event-meta">{event.place}</span> : null}
+        {event.kind === "setmanal" && daysLabel ? (
+          <span className="cal-event-meta">{daysLabel}</span>
+        ) : null}
         {event.kind === "setmanal" && (event.slot.dateFrom || event.slot.dateTo) ? (
           <span className="cal-event-meta">
             {event.slot.dateFrom || "…"} → {event.slot.dateTo || "…"}

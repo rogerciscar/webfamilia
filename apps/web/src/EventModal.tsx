@@ -2,7 +2,9 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { CustomEventKind, ScheduleSlot } from "./api";
 import {
   addMonthsIso,
+  orderWeekdays,
   resolveEventKind,
+  slotWeekdays,
   weekdaysCa,
   weekdayNameFromIso,
 } from "./calendar";
@@ -12,6 +14,7 @@ export type EventDraft = {
   eventKind: CustomEventKind;
   subject: string;
   day: string;
+  days: string[];
   dateIso: string;
   dateFrom: string;
   dateTo: string;
@@ -31,10 +34,12 @@ type Props = {
 };
 
 export function emptyDraft(selectedIso: string): EventDraft {
+  const day = weekdayNameFromIso(selectedIso);
   return {
     eventKind: "puntual",
     subject: "",
-    day: weekdayNameFromIso(selectedIso),
+    day,
+    days: [day],
     dateIso: selectedIso,
     dateFrom: selectedIso,
     dateTo: addMonthsIso(selectedIso, 3),
@@ -47,11 +52,14 @@ export function emptyDraft(selectedIso: string): EventDraft {
 
 export function draftFromSlot(slot: ScheduleSlot, fallbackIso: string): EventDraft {
   const kind = resolveEventKind(slot);
+  const days = slotWeekdays(slot);
+  const day = days[0] || slot.day || weekdayNameFromIso(slot.dateIso || fallbackIso);
   return {
     id: slot.id,
     eventKind: kind,
     subject: slot.subject,
-    day: slot.day || weekdayNameFromIso(slot.dateIso || fallbackIso),
+    day,
+    days: days.length ? days : [day],
     dateIso: slot.dateIso || fallbackIso,
     dateFrom: slot.dateFrom || slot.dateIso || fallbackIso,
     dateTo: slot.dateTo || addMonthsIso(slot.dateFrom || fallbackIso, 3),
@@ -87,6 +95,14 @@ export function EventModal({ open, busy, draft: initial, onClose, onSave, onDele
 
   if (!open) return null;
 
+  function toggleDay(day: string) {
+    setDraft((d) => {
+      const has = d.days.some((x) => x === day);
+      const next = orderWeekdays(has ? d.days.filter((x) => x !== day) : [...d.days, day]);
+      return { ...d, days: next, day: next[0] || day };
+    });
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!draft.subject.trim()) {
@@ -94,6 +110,11 @@ export function EventModal({ open, busy, draft: initial, onClose, onSave, onDele
       return;
     }
     if (draft.eventKind === "setmanal") {
+      const days = orderWeekdays(draft.days);
+      if (!days.length) {
+        setError("Tria almenys un dia de la setmana.");
+        return;
+      }
       if (!draft.dateFrom || !draft.dateTo) {
         setError("Cal data d'inici i de fi.");
         return;
@@ -108,16 +129,18 @@ export function EventModal({ open, busy, draft: initial, onClose, onSave, onDele
       }
     }
     setError(null);
+    const days = orderWeekdays(draft.days);
     try {
       await onSave({
         ...draft,
         subject: draft.subject.trim(),
         place: draft.place.trim(),
         notes: draft.notes.trim(),
+        days,
         day:
           draft.eventKind === "puntual"
             ? weekdayNameFromIso(draft.dateIso)
-            : draft.day,
+            : days[0] || draft.day,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut desar");
@@ -156,14 +179,18 @@ export function EventModal({ open, busy, draft: initial, onClose, onSave, onDele
               aria-checked={draft.eventKind === "setmanal"}
               className={draft.eventKind === "setmanal" ? "active" : ""}
               onClick={() =>
-                setDraft((d) => ({
-                  ...d,
-                  eventKind: "setmanal",
-                  day: d.day || weekdayNameFromIso(d.dateIso),
-                }))
+                setDraft((d) => {
+                  const days = orderWeekdays(d.days.length ? d.days : [d.day || weekdayNameFromIso(d.dateIso)]);
+                  return {
+                    ...d,
+                    eventKind: "setmanal",
+                    days,
+                    day: days[0] || weekdayNameFromIso(d.dateIso),
+                  };
+                })
               }
             >
-              Setmanal · amb horari
+              Període · dies + horari
             </button>
           </div>
           <label>
@@ -174,7 +201,7 @@ export function EventModal({ open, busy, draft: initial, onClose, onSave, onDele
               onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))}
               required
               disabled={busy}
-              placeholder="Ex. Extra anglès"
+              placeholder="Ex. Vesprades de setembre"
             />
           </label>
           {draft.eventKind === "puntual" ? (
@@ -221,20 +248,27 @@ export function EventModal({ open, busy, draft: initial, onClose, onSave, onDele
             </>
           ) : (
             <>
-              <label>
-                Dia de la setmana
-                <select
-                  value={draft.day}
-                  onChange={(e) => setDraft((d) => ({ ...d, day: e.target.value }))}
-                  disabled={busy}
-                >
-                  {weekdaysCa().map((w) => (
-                    <option key={w} value={w}>
-                      {w}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <fieldset className="day-chips-fieldset">
+                <legend>Dies de la setmana</legend>
+                <div className="day-chips" role="group" aria-label="Dies de la setmana">
+                  {weekdaysCa().map((w) => {
+                    const active = draft.days.includes(w);
+                    return (
+                      <button
+                        key={w}
+                        type="button"
+                        className={active ? "day-chip active" : "day-chip"}
+                        aria-pressed={active}
+                        disabled={busy}
+                        onClick={() => toggleDay(w)}
+                      >
+                        {w.slice(0, 2)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="day-chips-hint">Ex. Dl–Dj per vesprades de setembre</p>
+              </fieldset>
               <div className="modal-row2">
                 <label>
                   Hora inici

@@ -100,6 +100,13 @@ function resolveKind(slot: {
   return slot.dateIso ? "puntual" : "setmanal";
 }
 
+const WEEKDAY_ORDER = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres", "Dissabte", "Diumenge"];
+
+function orderWeekdays(days: string[]): string[] {
+  const set = new Set(days.map((d) => d.trim()).filter(Boolean));
+  return WEEKDAY_ORDER.filter((d) => set.has(d));
+}
+
 export async function listCustomSlots(studentId?: string) {
   const store = await readStore();
   if (!studentId) return store.slots;
@@ -113,15 +120,41 @@ export async function upsertCustomSlot(slot: Omit<ScheduleSlot, "id" | "custom">
   const dateIso = cleanIso(slot.dateIso);
   const dateFrom = cleanIso(slot.dateFrom);
   const dateTo = cleanIso(slot.dateTo);
+  const days = Array.isArray(slot.days)
+    ? [...new Set(slot.days.map((d) => String(d || "").trim()).filter(Boolean))]
+    : [];
   if (eventKind === "puntual" && !dateIso) throw new Error("Cal la data de l'activitat puntual.");
   if (eventKind === "setmanal") {
-    if (!slot.day?.trim()) throw new Error("Cal el dia de la setmana.");
+    const weekdays = orderWeekdays(days.length ? days : slot.day?.trim() ? [slot.day.trim()] : []);
+    if (!weekdays.length) throw new Error("Cal almenys un dia de la setmana.");
     if (!dateFrom || !dateTo) throw new Error("Cal data d'inici i data de fi.");
     if (dateFrom > dateTo) throw new Error("La data d'inici ha de ser anterior a la de fi.");
+    const primary = weekdays[0]!;
+    const next: ScheduleSlot = {
+      id,
+      day: primary,
+      days: weekdays,
+      subject: slot.subject.trim(),
+      studentId: slot.studentId,
+      studentName: slot.studentName,
+      custom: true,
+      eventKind,
+      start: slot.start || undefined,
+      end: slot.end || undefined,
+      place: slot.place?.trim() || undefined,
+      notes: slot.notes?.trim() || undefined,
+      dateFrom,
+      dateTo,
+    };
+    const idx = store.slots.findIndex((s) => s.id === id);
+    if (idx >= 0) store.slots[idx] = next;
+    else store.slots.push(next);
+    await writeStore(store);
+    return next;
   }
   const next: ScheduleSlot = {
     id,
-    day: slot.day,
+    day: slot.day || "Dilluns",
     subject: slot.subject.trim(),
     studentId: slot.studentId,
     studentName: slot.studentName,
@@ -131,9 +164,7 @@ export async function upsertCustomSlot(slot: Omit<ScheduleSlot, "id" | "custom">
     end: slot.end || undefined,
     place: slot.place?.trim() || undefined,
     notes: slot.notes?.trim() || undefined,
-    ...(eventKind === "puntual"
-      ? { dateIso }
-      : { dateFrom, dateTo, dateIso: undefined }),
+    dateIso,
   };
   const idx = store.slots.findIndex((s) => s.id === id);
   if (idx >= 0) store.slots[idx] = next;

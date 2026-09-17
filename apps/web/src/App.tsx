@@ -32,6 +32,7 @@ import {
   mondayOfWeek,
   parseIso,
   resolveEventKind,
+  slotWeekdays,
   todayIsoLocal,
   weekLabelCa,
 } from "./calendar";
@@ -63,7 +64,7 @@ const MES_SECTIONS: { id: MesSection; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.13";
+const APP_VERSION = "0.3.14";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -463,12 +464,16 @@ export default function App() {
   const daySlots = [
     ...baseSchedule.filter((s) => {
       const kind = s.custom ? resolveEventKind(s) : null;
-      if (kind === "puntual" || s.dateIso) return s.dateIso === scheduleDateIso;
-      if (normalizeDay(s.day) !== scheduleDay) return false;
-      if (kind === "setmanal" && (s.dateFrom || s.dateTo)) {
+      if (kind === "puntual" || (s.custom && s.dateIso && kind !== "setmanal")) {
+        return s.dateIso === scheduleDateIso;
+      }
+      if (s.custom && kind === "setmanal") {
+        if (!slotWeekdays(s).includes(scheduleDay)) return false;
         if (s.dateFrom && scheduleDateIso < s.dateFrom) return false;
         if (s.dateTo && scheduleDateIso > s.dateTo) return false;
+        return true;
       }
+      if (normalizeDay(s.day) !== scheduleDay) return false;
       return true;
     }),
     ...menuLunchDinner,
@@ -499,6 +504,7 @@ export default function App() {
     eventKind: "puntual" | "setmanal";
     subject: string;
     day: string;
+    days: string[];
     dateIso: string;
     dateFrom: string;
     dateTo: string;
@@ -524,7 +530,7 @@ export default function App() {
         notes: draft.notes || undefined,
         ...(draft.eventKind === "puntual"
           ? { dateIso: draft.dateIso }
-          : { dateFrom: draft.dateFrom, dateTo: draft.dateTo }),
+          : { days: draft.days, dateFrom: draft.dateFrom, dateTo: draft.dateTo }),
       });
       setDashboard(res.dashboard);
     } catch (err) {
@@ -1040,7 +1046,7 @@ export default function App() {
             </div>
           )}
           <p className="hint">
-            Les activitats pròpies (puntuals o setmanals) s’afegeixen i s’editen des de{" "}
+            Les activitats pròpies (puntuals o períodes Dil–Dj…) s’afegeixen i s’editen des de{" "}
             <button type="button" className="linkish" onClick={() => setTab("calendari")}>
               Calendari
             </button>

@@ -1201,6 +1201,43 @@ button.linkish:hover { transform: none; opacity: 0.85; }
   grid-template-columns: 1fr 1fr;
   gap: 0.65rem;
 }
+.day-chips-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.day-chips-fieldset legend {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+.day-chips {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+.day-chip {
+  min-height: 40px;
+  padding: 0.35rem 0.15rem;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--mist) 70%, white);
+  color: var(--ink-soft);
+  border: 1px solid transparent;
+}
+.day-chip.active {
+  background: color-mix(in srgb, var(--accent) 22%, white);
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.day-chips-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
 .seg {
   display: grid;
   grid-template-columns: 1fr 1fr;

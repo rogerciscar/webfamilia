@@ -92,6 +92,31 @@ export function resolveEventKind(slot: ScheduleSlot): CustomEventKind {
   return slot.dateIso ? "puntual" : "setmanal";
 }
 
+/** Weekdays a custom slot applies to (supports multi-day periods). */
+export function slotWeekdays(slot: ScheduleSlot): string[] {
+  const raw = slot.days?.length ? slot.days : slot.day ? [slot.day] : [];
+  return orderWeekdays(raw);
+}
+
+/** Sort weekdays Dilluns→Diumenge and drop unknowns. */
+export function orderWeekdays(days: string[]): string[] {
+  const set = new Set(days.map((d) => normalizeDay(d)).filter(Boolean));
+  return WEEKDAY_CA.filter((d) => set.has(d));
+}
+
+/** Compact label e.g. «Dl · Dt · Dc · Dj». */
+export function formatWeekdaysLabel(days: string[]): string {
+  const ordered = orderWeekdays(days);
+  if (!ordered.length) return "";
+  if (ordered.length === 1) return ordered[0]!;
+  return ordered
+    .map((d) => {
+      const i = WEEKDAY_CA.indexOf(d as (typeof WEEKDAY_CA)[number]);
+      return i >= 0 ? WEEKDAY_SHORT[i]! : d.slice(0, 2);
+    })
+    .join(" · ");
+}
+
 function inRange(dateIso: string, from?: string, to?: string) {
   if (from && dateIso < from) return false;
   if (to && dateIso > to) return false;
@@ -126,10 +151,11 @@ export function customEventsForMonth(
       });
       continue;
     }
-    const want = normalizeDay(slot.day);
+    const wants = new Set(slotWeekdays(slot));
+    if (!wants.size) continue;
     for (let d = 1; d <= daysInMonth; d++) {
       const dateIso = toDateIso(y, m0, d);
-      if (normalizeDay(weekdayNameFromIso(dateIso)) !== want) continue;
+      if (!wants.has(normalizeDay(weekdayNameFromIso(dateIso)))) continue;
       if (!inRange(dateIso, slot.dateFrom, slot.dateTo)) continue;
       out.push({
         kind: "setmanal",

@@ -112,6 +112,8 @@ export type CustomEventKind = "puntual" | "setmanal";
 export type ScheduleSlot = {
   id: string;
   day: string;
+  /** One or more weekdays (e.g. Dil–Dj for vesprades). Falls back to `day`. */
+  days?: string[];
   start?: string;
   end?: string;
   subject: string;
@@ -122,9 +124,9 @@ export type ScheduleSlot = {
   eventKind?: CustomEventKind;
   /** Puntual: single calendar day (YYYY-MM-DD). */
   dateIso?: string;
-  /** Setmanal: first day the recurrence is active. */
+  /** Setmanal/període: first day the recurrence is active. */
   dateFrom?: string;
-  /** Setmanal: last day the recurrence is active. */
+  /** Setmanal/període: last day the recurrence is active. */
   dateTo?: string;
   place?: string;
   notes?: string;
