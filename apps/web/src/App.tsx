@@ -24,9 +24,9 @@ import { PdfViewer } from "./PdfViewer";
 import { InstallAppButton } from "./InstallAppButton";
 import { MonthCalendar } from "./MonthCalendar";
 import {
+  formatCourses,
   menuSlotsForDay,
   normalizeDay,
-  saladLabel,
 } from "./menu-schedule";
 import {
   addDaysIso,
@@ -65,7 +65,7 @@ const MES_SECTIONS: { id: MesSection; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.15";
+const APP_VERSION = "0.3.16";
 const SYNC_POLL_MS = 25_000;
 const SYNC_CHANNEL = "pont-familia-sync";
 
@@ -570,7 +570,7 @@ export default function App() {
   const menus = forStudentMenus(dashboard.menus ?? [], sid, attachmentsAll, baseNotices);
   const dayIndex = Math.max(0, WEEK_DAYS.indexOf(scheduleDay as (typeof WEEK_DAYS)[number]));
   const scheduleDateIso = addDaysIso(weekMonday, dayIndex);
-  const menuLunchDinner = menuSlotsForDay(menus, scheduleDay, sid);
+  const menuLunchDinner = menuSlotsForDay(menus, scheduleDay, sid, scheduleDateIso);
   const baseSchedule = forStudent(dashboard.schedule ?? [], sid);
   const daySlots = [
     ...baseSchedule.filter((s) => {
@@ -1041,27 +1041,24 @@ export default function App() {
                               <tr>
                                 <th scope="col">Data</th>
                                 <th scope="col">Dia</th>
-                                <th scope="col">Plats</th>
-                                <th scope="col">Amanida</th>
-                                <th scope="col">Postre</th>
+                                <th scope="col">Menú</th>
                                 <th scope="col">Kcal</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {variant.days.slice(0, 31).map((d) => (
-                                <tr key={`${variant.name}-${d.date}`}>
-                                  <td className="time">{d.date.slice(5)}</td>
-                                  <td className="cell-soft">{(d.weekday || "").slice(0, 3)}</td>
-                                  <td className="cell-main" title={d.courses.join(" · ")}>
-                                    {d.courses.join(" · ") || "—"}
-                                  </td>
-                                  <td className="cell-soft" title={d.saladCode || undefined}>
-                                    {saladLabel(d.saladCode, variant.salads) || "—"}
-                                  </td>
-                                  <td className="cell-soft">{d.dessert || "—"}</td>
-                                  <td className="time">{d.nutrition?.kcal ?? "—"}</td>
-                                </tr>
-                              ))}
+                              {variant.days.slice(0, 31).map((d) => {
+                                const line = formatCourses(d, variant.salads);
+                                return (
+                                  <tr key={`${variant.name}-${d.date}`}>
+                                    <td className="time">{d.date.slice(5)}</td>
+                                    <td className="cell-soft">{(d.weekday || "").slice(0, 3)}</td>
+                                    <td className="cell-main cell-menu-line" title={line}>
+                                      {line || "—"}
+                                    </td>
+                                    <td className="time">{d.nutrition?.kcal ?? "—"}</td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -1136,7 +1133,12 @@ export default function App() {
                       {h.start || "—"}
                       {h.end ? `–${h.end}` : ""}
                     </span>
-                    <span className="horari-subject" title={h.subject}>
+                    <span
+                      className={
+                        menuKind ? "horari-subject horari-subject-menu" : "horari-subject"
+                      }
+                      title={h.subject}
+                    >
                       {h.subject}
                     </span>
                     {h.custom ? (

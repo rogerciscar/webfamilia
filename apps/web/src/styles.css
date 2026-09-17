@@ -603,6 +603,14 @@ label {
   word-break: break-word;
   line-height: 1.25;
 }
+.data-table .cell-menu-line {
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  word-break: normal;
+  max-width: 0;
+  min-width: 12rem;
+}
 .data-table .cell-soft {
   color: var(--ink-soft);
   font-weight: 500;
@@ -630,6 +638,12 @@ label {
   overflow: visible;
   text-overflow: unset;
   white-space: normal;
+}
+.data-table.dense .cell-menu-line {
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .data-table.dense .time {
   width: 5.6rem;
@@ -702,6 +716,16 @@ label {
   line-height: 1.25;
   font-weight: 500;
   color: var(--ink);
+}
+.horari-subject-menu {
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overflow-wrap: normal;
+  word-break: normal;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  max-width: 100%;
 }
 .horari-subject em {
   font-style: normal;

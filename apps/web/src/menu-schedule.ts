@@ -48,31 +48,62 @@ export function saladLabel(code: string | undefined, salads?: Record<string, str
   return key;
 }
 
+function cleanPart(s: string) {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/** Join all courses / salad / dessert into one horizontal line. */
 export function formatCourses(day: MenuDay, salads?: Record<string, string>) {
   const parts = [...(day.courses || [])];
   if (day.saladCode) parts.push(saladLabel(day.saladCode, salads));
   if (day.dessert) parts.push(day.dessert);
-  return parts.filter(Boolean).join(" · ") || "Menú";
+  return parts.map(cleanPart).filter(Boolean).join(" · ") || "Menú";
 }
 
 export type MenuSlot = ScheduleSlot & { menuKind?: "lunch" | "dinner" };
+
+/** Pick the MenuDay for a concrete calendar date (preferred) or weekday fallback. */
+export function menuDayForSchedule(
+  days: MenuDay[] | undefined,
+  dayName: string,
+  dateIso?: string,
+): MenuDay | undefined {
+  if (!days?.length) return undefined;
+  if (dateIso) {
+    const byDate = days.find((d) => (d.date || "").slice(0, 10) === dateIso.slice(0, 10));
+    if (byDate) return byDate;
+    // Same month: prefer dayOfMonth match when date string is missing/wrong
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateIso.slice(0, 10));
+    if (m) {
+      const dayNum = Number(m[3]);
+      const byDom = days.find((d) => d.dayOfMonth === dayNum);
+      if (byDom) return byDom;
+    }
+    // Do not fall back to another week's same weekday when a date was requested
+    return undefined;
+  }
+  const day = normalizeDay(dayName);
+  return days.find((d) => weekdayFromMenu(d) === day);
+}
 
 /** Inject lunch 12:45–13:15 and dinner 20:00–20:30 into the day schedule. */
 export function menuSlotsForDay(
   menus: MenuExtraction[],
   dayName: string,
   studentId?: string | null,
+  dateIso?: string,
 ): MenuSlot[] {
   const day = normalizeDay(dayName);
   const out: MenuSlot[] = [];
   for (const menu of menus) {
     const basal = basalVariant(menu);
     const dinner = dinnerVariant(menu);
-    const lunchDay = basal?.days.find((d) => weekdayFromMenu(d) === day);
-    const dinnerDay = dinner?.days.find((d) => weekdayFromMenu(d) === day);
+    const lunchDay = menuDayForSchedule(basal?.days, day, dateIso);
+    const dinnerDay = menuDayForSchedule(dinner?.days, day, dateIso);
+    const stamp = dateIso || day;
     if (lunchDay) {
       out.push({
-        id: `menu-lunch-${menu.attachmentId || menu.sourceFile}-${day}`,
+        id: `menu-lunch-${menu.attachmentId || menu.sourceFile}-${stamp}`,
         day,
         start: "12:45",
         end: "13:15",
@@ -85,7 +116,7 @@ export function menuSlotsForDay(
     }
     if (dinnerDay) {
       out.push({
-        id: `menu-dinner-${menu.attachmentId || menu.sourceFile}-${day}`,
+        id: `menu-dinner-${menu.attachmentId || menu.sourceFile}-${stamp}`,
         day,
         start: "20:00",
         end: "20:30",

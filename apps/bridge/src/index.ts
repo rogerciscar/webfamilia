@@ -370,7 +370,7 @@ if (webRootAbs && webRootRel) {
     c.header("pragma", "no-cache");
     c.header("expires", "0");
     c.header("surrogate-control", "no-store");
-    c.header("x-webfamilia-build", "0.3.15");
+    c.header("x-webfamilia-build", "0.3.16");
     return c.html(html);
   };
   // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).
