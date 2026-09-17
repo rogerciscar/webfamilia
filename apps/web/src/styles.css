@@ -697,13 +697,15 @@ label {
   font-size: 0.72rem;
 }
 .horari-del {
-  padding: 0.15rem 0.4rem;
+  padding: 0.2rem 0.45rem;
   min-height: 26px;
-  font-size: 0.9rem;
-  line-height: 1;
+  font-size: 0.72rem;
+  line-height: 1.1;
   align-self: center;
+  color: var(--coral);
+  flex-shrink: 0;
 }
-.horari-del-spacer { width: 1.4rem; align-self: center; }
+.horari-del-spacer { width: 3.6rem; align-self: center; }
 .horari-row.slot-custom {
   background: color-mix(in srgb, var(--coral) 12%, white);
   box-shadow: inset 3px 0 0 var(--coral);

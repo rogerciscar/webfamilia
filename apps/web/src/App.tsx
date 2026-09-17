@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.3";
+const APP_VERSION = "0.3.4";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -481,7 +481,13 @@ export default function App() {
     }
   }
 
-  async function onDeleteSlot(id: string) {
+  async function onDeleteSlot(id: string, label?: string) {
+    const ok = window.confirm(
+      label
+        ? `Vols esborrar «${label}» de l'horari?`
+        : "Vols esborrar aquest bloc de l'horari?",
+    );
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
@@ -913,16 +919,17 @@ export default function App() {
                     </span>
                     <span className="horari-subject" title={h.subject}>
                       {h.subject}
-                      {h.custom ? <em> · propi</em> : null}
                     </span>
                     {h.custom ? (
                       <button
                         type="button"
                         className="ghost horari-del"
                         disabled={busy}
-                        onClick={() => void onDeleteSlot(h.id)}
+                        aria-label={`Esborrar ${h.subject}`}
+                        title="Esborrar"
+                        onClick={() => void onDeleteSlot(h.id, h.subject)}
                       >
-                        ×
+                        Esborrar
                       </button>
                     ) : (
                       <span className="horari-del-spacer" aria-hidden="true" />
