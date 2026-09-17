@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.5";
+const APP_VERSION = "0.3.6";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -438,9 +438,9 @@ export default function App() {
     dashboard.students.find((s) => s.id === studentId) ?? dashboard.student ?? null;
 
   const sid = student?.id;
-  const attachments = forStudent(dashboard.attachments ?? [], sid);
+  const attachmentsAll = dashboard.attachments ?? [];
   const baseNotices = forStudent(dashboard.notices, sid);
-  const menus = forStudentMenus(dashboard.menus ?? [], sid, attachments, baseNotices);
+  const menus = forStudentMenus(dashboard.menus ?? [], sid, attachmentsAll, baseNotices);
   const menuLunchDinner = menuSlotsForDay(menus, scheduleDay, sid);
   const schedule = [
     ...forStudent(dashboard.schedule ?? [], sid),
@@ -985,21 +985,25 @@ function forStudent<T extends { studentId?: string }>(items: T[], sid?: string |
 function forStudentMenus(
   menus: MenuExtraction[],
   sid: string | null | undefined,
-  attachments: { id: string; studentId?: string }[],
+  attachments: { id: string; studentId?: string; kind?: string }[],
   notices: { studentId?: string; attachments?: { id: string }[] }[],
 ) {
   if (!sid) return menus;
-  return menus.filter((menu) => {
-    if (menu.studentId) return menu.studentId === sid;
-    if (menu.attachmentId && attachments.some((a) => a.id === menu.attachmentId)) return true;
-    if (
-      menu.attachmentId &&
-      notices.some((n) => n.attachments?.some((a) => a.id === menu.attachmentId))
-    ) {
+  const own = menus.filter((m) => !m.studentId || m.studentId === sid);
+  const ownAttIds = new Set(own.map((m) => m.attachmentId).filter(Boolean));
+  const shared = menus.filter((menu) => {
+    if (!menu.studentId || menu.studentId === sid) return false;
+    if (menu.attachmentId && ownAttIds.has(menu.attachmentId)) return false;
+    // Menú menjador del centre: visible per a tots els germans
+    const att = attachments.find((a) => a.id === menu.attachmentId);
+    if (att?.kind === "menu_menjador" || att?.kind === "menu_especial") return true;
+    if (/men[uú]|menjador|comedor/i.test(menu.sourceFile || "")) return true;
+    if (menu.attachmentId && notices.some((n) => n.attachments?.some((a) => a.id === menu.attachmentId))) {
       return true;
     }
     return false;
   });
+  return [...own, ...shared];
 }
 
 function Section({

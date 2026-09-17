@@ -820,27 +820,44 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       att.kind === "menu_especial" ||
       /men[uú]|menjador|comedor|dieta/i.test(`${att.filename} ${notice.title} ${docText}`);
     if (looksMenu) {
-      const already = menus.some(
-        (m) => m.attachmentId === att.id && m.studentId === notice.studentId,
-      );
-      if (!already) {
-        try {
-          const buf = cached?.buffer ?? buffer;
-          const menu = await extractMenuFromPdf(buf, {
-            sourceFile: att.filename,
-            centerName: students.find((s) => s.id === notice.studentId)?.center,
-          });
-          if (menu) {
-            menu.attachmentId = att.id;
-            menu.studentId = notice.studentId;
-            menu.studentName = notice.studentName;
-            menus.push(menu);
-          } else scrapeErrors.push(`menu buit: ${att.filename}`);
-        } catch (err) {
-          scrapeErrors.push(
-            `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
-          );
+      // Attach the same PDF onto every sibling's menjador aviso
+      for (const n of notices) {
+        if (!/men[uú]|menjador|comedor/i.test(n.title)) continue;
+        n.attachments = n.attachments || [];
+        if (!n.attachments.some((a) => a.sha256 === att.sha256 || a.id === att.id)) {
+          n.attachments.push({ ...att, studentId: n.studentId, noticeId: n.id });
         }
+      }
+      try {
+        const buf = cached?.buffer ?? buffer;
+        const baseMenu = await extractMenuFromPdf(buf, {
+          sourceFile: att.filename,
+          centerName:
+            students.find((s) => s.id === notice.studentId)?.center || students[0]?.center,
+        });
+        if (!baseMenu) {
+          scrapeErrors.push(`menu buit: ${att.filename}`);
+        } else {
+          baseMenu.attachmentId = att.id;
+          // Menú del centre: replicate for every student in the account
+          const targets = students.length
+            ? students
+            : [{ id: notice.studentId || "", name: notice.studentName || "" }];
+          for (const s of targets) {
+            if (!s.id) continue;
+            if (menus.some((m) => m.attachmentId === att.id && m.studentId === s.id)) continue;
+            menus.push({
+              ...baseMenu,
+              attachmentId: att.id,
+              studentId: s.id,
+              studentName: s.name,
+            });
+          }
+        }
+      } catch (err) {
+        scrapeErrors.push(
+          `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
+        );
       }
     }
     return att;
@@ -1052,6 +1069,41 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       if (att.noticeId !== notice.id) continue;
       if (notice.attachments.some((a) => a.sha256 === att.sha256 || a.id === att.id)) continue;
       notice.attachments.push(att);
+    }
+  }
+  // Share centre-wide docs (menú / dossier / infografia) across all students' matching avisos
+  for (const att of attachments) {
+    const shared =
+      att.kind === "menu_menjador" ||
+      att.kind === "menu_especial" ||
+      att.kind === "aviso_doc" ||
+      /men[uú]|menjador|dossier|infograf|informaci/i.test(`${att.filename} ${att.noticeId || ""}`);
+    if (!shared) continue;
+    const seed = notices.find((n) => n.id === att.noticeId || n.attachments?.some((a) => a.id === att.id));
+    const titleRe = seed?.title
+      ? new RegExp(seed.title.slice(0, 24).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+      : /men[uú]|menjador|dossier|infograf|informaci/i;
+    for (const n of notices) {
+      if (!titleRe.test(n.title) && !/men[uú]|menjador|dossier|infograf|informaci/i.test(n.title)) {
+        continue;
+      }
+      n.attachments = n.attachments || [];
+      if (!n.attachments.some((a) => a.id === att.id || a.sha256 === att.sha256)) {
+        n.attachments.push({ ...att, studentId: n.studentId, noticeId: n.id });
+      }
+    }
+  }
+  // Ensure every student has a menu row when we extracted at least one
+  if (menus.length && students.length > 1) {
+    const byAtt = new Map<string, (typeof menus)[0]>();
+    for (const m of menus) {
+      if (m.attachmentId && !byAtt.has(m.attachmentId)) byAtt.set(m.attachmentId, m);
+    }
+    for (const [attId, base] of byAtt) {
+      for (const s of students) {
+        if (menus.some((m) => m.attachmentId === attId && m.studentId === s.id)) continue;
+        menus.push({ ...base, studentId: s.id, studentName: s.name, attachmentId: attId });
+      }
     }
   }
   } finally {
