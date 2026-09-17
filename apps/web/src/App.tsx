@@ -5,7 +5,6 @@ import {
   login,
   logout,
   removeCustomSlot,
-  removeStudentPhoto,
   saveCustomSlot,
   startMock,
   unlock,
@@ -21,10 +20,12 @@ import {
 } from "./remember";
 import { PhotoCropper } from "./PhotoCropper";
 import { PdfViewer } from "./PdfViewer";
+import { InstallAppButton } from "./InstallAppButton";
 import {
-  dinnerAgendaNotices,
+  isMenjadorAgendaNotice,
   menuSlotsForDay,
   normalizeDay,
+  saladLabel,
 } from "./menu-schedule";
 
 type Tab =
@@ -49,7 +50,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.2.9";
+const APP_VERSION = "0.3.0";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -271,7 +272,6 @@ export default function App() {
     try {
       const res = await uploadStudentPhoto(studentId, blob, "carnet.jpg");
       const dash = res.dashboard;
-      // Ensure UI shows photo even if merge lagged
       const students = dash.students.map((s) =>
         s.id === studentId
           ? {
@@ -290,21 +290,6 @@ export default function App() {
       setCropFile(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut pujar la foto");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onClearPhoto() {
-    if (!studentId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await removeStudentPhoto(studentId);
-      setDashboard(res.dashboard);
-      setPhotoTick(Date.now());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No s'ha pogut treure la foto");
     } finally {
       setBusy(false);
     }
@@ -462,10 +447,9 @@ export default function App() {
     ...forStudent(dashboard.schedule ?? [], sid),
     ...menuLunchDinner,
   ];
-  const notices = [
-    ...baseNotices,
-    ...dinnerAgendaNotices(menus, sid),
-  ].sort((a, b) => (a.dateIso || a.date || "").localeCompare(b.dateIso || b.date || ""));
+  const notices = forStudent(dashboard.notices, sid)
+    .filter((n) => !isMenjadorAgendaNotice(n.title))
+    .sort((a, b) => (a.dateIso || a.date || "").localeCompare(b.dateIso || b.date || ""));
   const absences = forStudent(dashboard.absences, sid);
   const grades = forStudent(dashboard.grades, sid);
   const messages = forStudent(dashboard.messages, sid);
@@ -550,18 +534,6 @@ export default function App() {
                 <span className="avatar-fallback">{(student?.name || "?").slice(0, 1)}</span>
               )}
             </button>
-            {(student?.photoUrl || student?.hasPhoto) && (
-              <button
-                type="button"
-                className="avatar-clear"
-                disabled={busy}
-                onClick={() => void onClearPhoto()}
-                aria-label="Treure foto"
-                title="Treure foto"
-              >
-                ×
-              </button>
-            )}
           </div>
           <input
             ref={photoInputRef}
@@ -574,6 +546,7 @@ export default function App() {
             <div className="topbar-title-row">
               <h1>WebFamilia</h1>
               <span className="version-badge quiet">v{session?.version || APP_VERSION}</span>
+              <InstallAppButton />
               <button type="button" className="ghost topbar-exit" disabled={busy} onClick={onLogout}>
                 Sortir
               </button>
@@ -584,6 +557,9 @@ export default function App() {
                 ? ` · ${student.group || student.course}`
                 : ""}
             </p>
+            {student?.tutorName ? (
+              <p className="tutor-line">Tutora · {student.tutorName}</p>
+            ) : null}
           </div>
         </div>
       </header>
@@ -647,12 +623,12 @@ export default function App() {
           {notices.length === 0 && <Empty />}
           {notices.length > 0 && (
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table dense">
                 <thead>
                   <tr>
                     <th scope="col">Data</th>
                     <th scope="col">Avís</th>
-                    <th scope="col">Documents</th>
+                    <th scope="col">Docs</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -691,7 +667,7 @@ export default function App() {
           {absences.length === 0 && <Empty />}
           {absences.length > 0 && (
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table dense">
                 <thead>
                   <tr>
                     <th scope="col">Data</th>
@@ -724,7 +700,7 @@ export default function App() {
           {activities.length === 0 && <Empty />}
           {activities.length > 0 && (
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table dense">
                 <thead>
                   <tr>
                     <th scope="col">Data</th>
@@ -751,7 +727,7 @@ export default function App() {
           {messages.length === 0 && <Empty />}
           {messages.length > 0 && (
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table dense">
                 <thead>
                   <tr>
                     <th scope="col">Data</th>
@@ -778,7 +754,7 @@ export default function App() {
           {grades.length === 0 && <Empty />}
           {grades.length > 0 && (
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table dense">
                 <thead>
                   <tr>
                     <th scope="col">Àrea</th>
@@ -805,7 +781,7 @@ export default function App() {
           {subjects.length === 0 && <Empty />}
           {subjects.length > 0 && (
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table dense">
                 <thead>
                   <tr>
                     <th scope="col">Àrea</th>
@@ -872,7 +848,7 @@ export default function App() {
                                 <th scope="col">Data</th>
                                 <th scope="col">Dia</th>
                                 <th scope="col">Plats</th>
-                                <th scope="col">A</th>
+                                <th scope="col">Amanida</th>
                                 <th scope="col">Postre</th>
                                 <th scope="col">Kcal</th>
                               </tr>
@@ -885,7 +861,9 @@ export default function App() {
                                   <td className="cell-main" title={d.courses.join(" · ")}>
                                     {d.courses.join(" · ") || "—"}
                                   </td>
-                                  <td>{d.saladCode || "—"}</td>
+                                  <td className="cell-soft" title={d.saladCode || undefined}>
+                                    {saladLabel(d.saladCode, variant.salads) || "—"}
+                                  </td>
                                   <td className="cell-soft">{d.dessert || "—"}</td>
                                   <td className="time">{d.nutrition?.kcal ?? "—"}</td>
                                 </tr>
@@ -937,8 +915,6 @@ export default function App() {
                     <span className="horari-subject" title={h.subject}>
                       {h.subject}
                       {h.custom ? <em> · propi</em> : null}
-                      {menuKind === "lunch" ? <em> · dinar</em> : null}
-                      {menuKind === "dinner" ? <em> · sopar</em> : null}
                     </span>
                     {h.custom ? (
                       <button

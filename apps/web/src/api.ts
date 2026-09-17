@@ -126,7 +126,7 @@ export type MenuExtraction = {
   provider?: string;
   year: number;
   month: number;
-  variants: { name: string; days: MenuDay[] }[];
+  variants: { name: string; days: MenuDay[]; salads?: Record<string, string>; notes?: string[] }[];
   attachmentId?: string;
   studentId?: string;
   studentName?: string;

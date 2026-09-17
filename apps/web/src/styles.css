@@ -228,16 +228,25 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tutor-line {
+  margin: 0.05rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .avatar-wrap {
   position: relative;
   flex-shrink: 0;
 }
 .avatar-btn {
-  width: 72px;
-  height: 72px;
-  min-height: 72px;
+  width: 92px;
+  height: 92px;
+  min-height: 92px;
   padding: 0;
-  border-radius: 22px;
+  border-radius: 26px;
   overflow: hidden;
   flex-shrink: 0;
   background: color-mix(in srgb, var(--brand) 18%, white);
@@ -256,24 +265,13 @@ label {
   width: 100%;
   height: 100%;
   font-family: var(--font-display);
-  font-size: 1.7rem;
+  font-size: 2rem;
   color: var(--brand-deep);
 }
-.avatar-clear {
-  position: absolute;
-  top: -0.25rem;
-  right: -0.25rem;
-  width: 1.45rem;
-  height: 1.45rem;
-  min-height: 1.45rem;
-  padding: 0;
-  border-radius: 999px;
-  background: var(--coral);
-  color: white;
-  font-size: 1rem;
-  line-height: 1;
-  border: 2px solid white;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 20%, transparent);
+.topbar-install {
+  padding: 0.2rem 0.55rem;
+  min-height: 28px;
+  font-size: 0.78rem;
 }
 .students {
   display: flex;
@@ -554,18 +552,18 @@ label {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 280px;
-  font-size: 0.92rem;
+  min-width: 0;
+  font-size: 0.8rem;
 }
 .data-table th,
 .data-table td {
-  padding: 0.7rem 0.8rem;
+  padding: 0.35rem 0.55rem;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--line);
 }
 .data-table thead th {
-  font-size: 0.72rem;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -578,38 +576,51 @@ label {
 .data-table .time {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  color: var(--ink-soft);
-  font-weight: 600;
-  width: 7.5rem;
+  color: var(--ink);
+  font-weight: 700;
+  width: 5.8rem;
 }
-.data-table .time strong { color: var(--ink); font-size: 0.95rem; }
-.data-table .time span { font-weight: 500; font-size: 0.85rem; }
-.data-table .cell-main { font-weight: 600; color: var(--ink); }
-.data-table .cell-soft { color: var(--ink-soft); font-weight: 500; }
+.data-table .time strong { color: var(--ink); font-size: 0.8rem; }
+.data-table .time span { font-weight: 500; font-size: 0.76rem; }
+.data-table .cell-main {
+  font-weight: 500;
+  color: var(--ink);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+}
+.data-table .cell-soft {
+  color: var(--ink-soft);
+  font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
 .data-table.dense {
   min-width: 0;
   width: 100%;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 .data-table.dense th,
 .data-table.dense td {
-  padding: 0.22rem 0.45rem;
-  vertical-align: middle;
-  white-space: nowrap;
+  padding: 0.28rem 0.5rem;
+  vertical-align: top;
 }
 .data-table.dense thead th {
   font-size: 0.62rem;
-  padding: 0.2rem 0.45rem;
+  padding: 0.22rem 0.5rem;
 }
 .data-table.dense .cell-main {
   font-weight: 500;
-  max-width: 58vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: none;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
 }
 .data-table.dense .time {
   width: 5.6rem;
-  font-size: 0.76rem;
+  font-size: 0.78rem;
 }
 .data-table.dense .time strong {
   font-size: 0.78rem;
@@ -626,6 +637,11 @@ label {
   padding: 0.2rem 0.45rem;
   min-height: 28px;
   font-size: 0.72rem;
+}
+.data-table .linkish {
+  font-size: 0.76rem;
+  white-space: normal;
+  text-align: left;
 }
 .section-head {
   display: flex;
@@ -846,10 +862,10 @@ button.linkish:hover { transform: none; opacity: 0.85; }
 @media (min-width: 820px) {
   .app-shell { padding-bottom: 2.5rem; }
   .avatar-btn {
-    width: 84px;
-    height: 84px;
-    min-height: 84px;
-    border-radius: 24px;
+    width: 104px;
+    height: 104px;
+    min-height: 104px;
+    border-radius: 28px;
   }
   .tabs {
     display: flex;

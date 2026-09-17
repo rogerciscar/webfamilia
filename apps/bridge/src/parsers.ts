@@ -166,7 +166,8 @@ export function parseDocumentLinks(html: string, baseUrl = "https://familia.edu.
   const looksDoc = (href: string, text: string) =>
     /\.pdf(\?|$)/i.test(href) ||
     /application\/pdf/i.test(href) ||
-    /documento|adjunto|fichero|descarg|download|visor|attachment|fileid|id_?doc|tipo=pdf|content-disposition/i.test(
+    /sharepoint\.com|onedrive\.live|1drv\.ms|spo_|download\.aspx/i.test(href) ||
+    /documento|adjunto|fichero|descarg|download|visor|attachment|fileid|id_?doc|tipo=pdf|content-disposition|bt-documento/i.test(
       `${href} ${text}`,
     );
 

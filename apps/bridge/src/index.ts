@@ -353,12 +353,29 @@ if (webRootAbs && webRootRel) {
     c.header("pragma", "no-cache");
     c.header("expires", "0");
     c.header("surrogate-control", "no-store");
-    c.header("x-webfamilia-build", "0.2.9");
+    c.header("x-webfamilia-build", "0.3.0");
     return c.html(html);
   };
   // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).
   app.get("/", sendIndex);
   app.get("/index.html", sendIndex);
+  app.get("/sw.js", async (c) => {
+    const file = path.join(webRootAbs, "sw.js");
+    if (!existsSync(file)) return c.text("Not found", 404);
+    const body = await readFile(file, "utf8");
+    c.header("content-type", "application/javascript; charset=utf-8");
+    c.header("cache-control", "no-cache, max-age=0");
+    c.header("service-worker-allowed", "/");
+    return c.body(body);
+  });
+  app.get("/manifest.webmanifest", async (c) => {
+    const file = path.join(webRootAbs, "manifest.webmanifest");
+    if (!existsSync(file)) return c.text("Not found", 404);
+    const body = await readFile(file, "utf8");
+    c.header("content-type", "application/manifest+json; charset=utf-8");
+    c.header("cache-control", "no-cache, max-age=0");
+    return c.body(body);
+  });
   app.use(
     "/*",
     serveStatic({

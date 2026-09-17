@@ -1,4 +1,4 @@
-import type { MenuDay, MenuExtraction, Notice, ScheduleSlot } from "./api";
+import type { MenuDay, MenuExtraction, ScheduleSlot } from "./api";
 
 const WEEK_MAP: Record<string, string> = {
   dilluns: "Dilluns",
@@ -39,9 +39,18 @@ function dinnerVariant(menu: MenuExtraction) {
   return menu.variants.find((v) => /nits|complementari|sopar|cena/i.test(v.name));
 }
 
-function formatCourses(day: MenuDay) {
+/** Resolve A1–A5 to the salad legend text when available. */
+export function saladLabel(code: string | undefined, salads?: Record<string, string>) {
+  if (!code) return "";
+  const key = code.trim().toUpperCase();
+  const name = salads?.[key] || salads?.[code];
+  if (name) return name;
+  return key;
+}
+
+export function formatCourses(day: MenuDay, salads?: Record<string, string>) {
   const parts = [...(day.courses || [])];
-  if (day.saladCode) parts.push(day.saladCode);
+  if (day.saladCode) parts.push(saladLabel(day.saladCode, salads));
   if (day.dessert) parts.push(day.dessert);
   return parts.filter(Boolean).join(" · ") || "Menú";
 }
@@ -67,7 +76,7 @@ export function menuSlotsForDay(
         day,
         start: "12:45",
         end: "13:15",
-        subject: `Dinar · ${formatCourses(lunchDay)}`,
+        subject: `Dinar · ${formatCourses(lunchDay, basal?.salads)}`,
         studentId: studentId || menu.studentId,
         studentName: menu.studentName,
         custom: false,
@@ -80,18 +89,14 @@ export function menuSlotsForDay(
         day,
         start: "20:00",
         end: "20:30",
-        subject: `Sopar · ${formatCourses(dinnerDay)}`,
+        subject: `Sopar · ${formatCourses(dinnerDay, dinner?.salads || basal?.salads)}`,
         studentId: studentId || menu.studentId,
         studentName: menu.studentName,
         custom: false,
         menuKind: "dinner",
       });
-    } else if (lunchDay && !dinner) {
-      // No complementary dinner PDF: still propose evening slot from lunch dessert note if any
-      // Skip — user asked dinner from menu proposal specifically
     }
   }
-  // Dedupe by start+kind keeping first
   const seen = new Set<string>();
   return out.filter((s) => {
     const k = `${s.start}:${s.menuKind}`;
@@ -101,72 +106,9 @@ export function menuSlotsForDay(
   });
 }
 
-/** Agenda rows for dinner proposals (20:00–20:30) across menu days. */
-export function dinnerAgendaNotices(
-  menus: MenuExtraction[],
-  studentId?: string | null,
-): Notice[] {
-  const out: Notice[] = [];
-  for (const menu of menus) {
-    const dinner = dinnerVariant(menu);
-    const days = dinner?.days?.length ? dinner.days : [];
-    // If no nits variant, invent dinner agenda from basal days as "proposta de sopar" skip
-    // User wants dinner proposal — use nits when present; else skip
-    for (const d of days) {
-      out.push({
-        id: `dinner-${menu.attachmentId || menu.sourceFile}-${d.date}`,
-        title: `Sopar 20:00–20:30 · ${formatCourses(d)}`,
-        body: dinner?.name || "Proposta de sopar",
-        date: d.date,
-        dateIso: d.date,
-        studentId: studentId || menu.studentId,
-        studentName: menu.studentName,
-        hasDetail: false,
-        attachments: [],
-      });
-    }
-  }
-  // Prefer unique by date
-  const seen = new Set<string>();
-  return out
-    .filter((n) => {
-      const k = n.dateIso || n.date || n.id;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    })
-    .sort((a, b) => (a.dateIso || "").localeCompare(b.dateIso || ""));
-}
-
-/** Also surface today's lunch in agenda if useful — kept separate; dinner is primary. */
-export function lunchAgendaNotices(
-  menus: MenuExtraction[],
-  studentId?: string | null,
-): Notice[] {
-  const out: Notice[] = [];
-  for (const menu of menus) {
-    const basal = basalVariant(menu);
-    for (const d of basal?.days || []) {
-      out.push({
-        id: `lunch-${menu.attachmentId || menu.sourceFile}-${d.date}`,
-        title: `Dinar 12:45–13:15 · ${formatCourses(d)}`,
-        body: basal?.name || "Menú menjador",
-        date: d.date,
-        dateIso: d.date,
-        studentId: studentId || menu.studentId,
-        studentName: menu.studentName,
-        hasDetail: false,
-        attachments: [],
-      });
-    }
-  }
-  const seen = new Set<string>();
-  return out
-    .filter((n) => {
-      const k = n.dateIso || n.date || n.id;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    })
-    .sort((a, b) => (a.dateIso || "").localeCompare(b.dateIso || ""));
+/** True for WF "Menú menjador" avisos (belong in Menús, not Agenda). */
+export function isMenjadorAgendaNotice(title: string) {
+  return /men[uú]\s*(del\s*)?(menjador|comedor)|menjador\s*setembr|proposta de sopar|^sopar\s*\d|^dinar\s*\d/i.test(
+    title,
+  );
 }

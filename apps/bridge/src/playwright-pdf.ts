@@ -93,6 +93,18 @@ export class PlaywrightPdfSession {
         clicked = true;
       }
     }
+    // Always try common WF document buttons on the detail page
+    if (!clicked) {
+      const docBtn = page
+        .locator(
+          'a.bt-documento, a[href*="sharepoint"], a[href*=".pdf"], a[href*="documento"], a[href*="download.aspx"], a[href*="visor"]',
+        )
+        .first();
+      if (await docBtn.count()) {
+        await docBtn.click({ timeout: 8000 }).catch(() => undefined);
+        clicked = true;
+      }
+    }
     if (!clicked && opts.noticeTitle) {
       const titleHit = page.getByText(new RegExp(escapeRe(opts.noticeTitle.slice(0, 40)), "i")).first();
       if (await titleHit.count()) {
@@ -100,7 +112,7 @@ export class PlaywrightPdfSession {
         clicked = true;
       }
     }
-    const dlBtn = page.getByRole("link", { name: /descarg|download|\.pdf/i }).first();
+    const dlBtn = page.getByRole("link", { name: /descarg|download|\.pdf|document/i }).first();
     if (await dlBtn.count()) {
       await dlBtn.click().catch(() => undefined);
     }

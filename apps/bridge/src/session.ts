@@ -802,8 +802,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       }
     }
 
-    // No doc links or download failed: Playwright click on notice title (SharePoint path)
-    if (!notice.attachments.length && /men[uú]|menjador|pdf|document|adjunt/i.test(notice.title)) {
+    // No attachments yet: Playwright on detail (SharePoint / bt-documento / any PDF)
+    if (!notice.attachments.length) {
       try {
         const session = await ensurePw();
         if (session && detailUrl) {
@@ -831,6 +831,16 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       }
     }
     if (notice.attachments.length) notice.body = notice.title;
+  }
+
+  // Re-link global attachments onto notices by noticeId (safety net)
+  for (const notice of notices) {
+    notice.attachments = notice.attachments || [];
+    for (const att of attachments) {
+      if (att.noticeId !== notice.id) continue;
+      if (notice.attachments.some((a) => a.sha256 === att.sha256 || a.id === att.id)) continue;
+      notice.attachments.push(att);
+    }
   }
 
   // Dedicated Menú menjador pass if still empty
