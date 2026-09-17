@@ -228,7 +228,10 @@ export async function loginLive(input: {
         dashError instanceof Error
           ? `Login OK, però el scrape parcial ha fallat: ${dashError.message}`
           : "Login OK, scrape parcial fallit";
-      return mergeCustomIntoDashboard(partial);
+      return commitDashboard(partial, {
+        allowWeaker: false,
+        reason: "login partial fallback",
+      });
     }
   } catch (error) {
     state.client = null;
@@ -408,6 +411,52 @@ export async function getDashboard(opts?: { refresh?: boolean }): Promise<Dashbo
 
 export function getCachedDashboard() {
   return state.lastDashboard ?? null;
+}
+
+function dashboardScore(d: Dashboard | null | undefined): number {
+  if (!d) return 0;
+  return (
+    (d.students?.length || 0) * 20 +
+    (d.schedule?.length || 0) * 3 +
+    (d.subjects?.length || 0) * 3 +
+    (d.notices?.length || 0) * 2 +
+    (d.absences?.length || 0) +
+    (d.grades?.length || 0) +
+    (d.messages?.length || 0) +
+    (d.activities?.length || 0) +
+    (d.attachments?.length || 0) * 2 +
+    (d.menus?.length || 0) * 4
+  );
+}
+
+/** Publish dashboard to memory + cache, but never replace a rich live cache with a hollow scrape. */
+async function commitDashboard(
+  dashboard: Dashboard,
+  opts?: { allowWeaker?: boolean; reason?: string },
+): Promise<Dashboard> {
+  const prev = state.lastDashboard;
+  const nextScore = dashboardScore(dashboard);
+  const prevScore = dashboardScore(prev);
+  if (
+    prev?.source === "live" &&
+    dashboard.source === "live" &&
+    !opts?.allowWeaker &&
+    prevScore >= 25 &&
+    nextScore < Math.max(12, prevScore * 0.35)
+  ) {
+    console.warn(
+      `[webfamilia] keeping previous dashboard (score ${prevScore}) instead of weak scrape ${nextScore}${opts?.reason ? ` · ${opts.reason}` : ""}`,
+    );
+    return mergeCustomIntoDashboard(prev);
+  }
+  state.lastDashboard = dashboard;
+  void saveDashboardCache(dashboard).catch((err) =>
+    console.error("[webfamilia] dashboard cache save failed:", err),
+  );
+  console.log(
+    `[webfamilia] dashboard committed score=${nextScore} students=${dashboard.students.length} schedule=${dashboard.schedule.length} subjects=${dashboard.subjects.length} notices=${dashboard.notices.length} menus=${dashboard.menus?.length ?? 0}${opts?.reason ? ` · ${opts.reason}` : ""}`,
+  );
+  return mergeCustomIntoDashboard(dashboard);
 }
 
 async function mergeCustomIntoDashboard(dash: Dashboard): Promise<Dashboard> {
@@ -659,10 +708,57 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     }
   }
 
+  // Publish HTML scrape immediately so Horari/Assign/Agenda appear while PDFs download.
+  const behaviorsEarly = parseBehaviors(homeHtml);
+  state.structure = analyzePages(pages);
+  await commitDashboard(
+    {
+      source: "live",
+      capturedAt: new Date().toISOString(),
+      students,
+      student: students[0] ?? null,
+      notices,
+      absences,
+      grades,
+      messages,
+      activities,
+      behaviors: behaviorsEarly,
+      subjects,
+      schedule,
+      attachments: [...attachments],
+      menus: [...menus],
+      diagnostics: {
+        pages: Object.entries(pages).map(([key, html]) => ({
+          key,
+          bytes: html.length,
+          title: cheerio.load(html)("title").first().text().replace(/\s+/g, " ").trim(),
+          links: extractNavLinks(html).length,
+        })),
+        navLinks: nav.slice(0, 40),
+        scrapeErrors: scrapeErrors.slice(0, 30),
+        scrapedStudents: students.map((s) => ({
+          id: s.id,
+          name: s.name,
+          notices: notices.filter((n) => n.studentId === s.id).length,
+          schedule: schedule.filter((h) => h.studentId === s.id).length,
+          subjects: subjects.filter((x) => x.studentId === s.id).length,
+          absences: absences.filter((a) => a.studentId === s.id).length,
+          menus: 0,
+          tutorName: s.tutorName,
+          group: s.group || s.course,
+        })),
+        note: "Scrapejant PDFs dels avisos…",
+      },
+    },
+    { allowWeaker: false, reason: "html interim" },
+  );
+
   // Open aviso details and pull PDFs (Agenda → PDF → Menús) — per student
   // SharePoint needs Playwright (browser cookies); cheerio/fetch alone fails.
   const pdfCache = new Map<string, { att: Attachment; buffer: Buffer }>();
   let pw: PlaywrightPdfSession | null = null;
+  let pwTries = 0;
+  const PW_LIMIT = 12;
   const ensurePw = async () => {
     if (pw) return pw;
     const password = await resolveWfPassword(client);
@@ -681,7 +777,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     }
   };
   try {
-  for (const notice of notices.slice(0, 50)) {
+  for (const notice of notices.slice(0, 40)) {
     const mid = notice.studentId ? matriculaByStudent.get(notice.studentId) : undefined;
     const hrefCandidates = [
       notice.detailHref,
@@ -802,8 +898,16 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       }
     }
 
-    // No attachments yet: Playwright on detail (SharePoint / bt-documento / any PDF)
-    if (!notice.attachments.length) {
+    // Playwright only when needed — never for every aviso (that hung the whole scrape).
+    const wantsPw =
+      !notice.attachments.length &&
+      pwTries < PW_LIMIT &&
+      (docLinks.length > 0 ||
+        /men[uú]|menjador|pdf|document|adjunt|circular|infograf|guia|normativa|calendari|horari|protocol/i.test(
+          notice.title,
+        ));
+    if (wantsPw) {
+      pwTries += 1;
       try {
         const session = await ensurePw();
         if (session && detailUrl) {
@@ -944,12 +1048,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     menus,
     diagnostics,
   };
-  state.lastDashboard = dashboard;
-  void saveDashboardCache(dashboard).catch((err) =>
-    console.error("[webfamilia] dashboard cache save failed:", err),
-  );
-  // Re-attach Postgres photos + custom slots after every scrape/login.
-  return mergeCustomIntoDashboard(dashboard);
+  return commitDashboard(dashboard, { allowWeaker: false, reason: "full scrape" });
 }
 
 function tagStudent<T extends object>(

@@ -65,11 +65,11 @@ export class PlaywrightPdfSession {
     if (!this.page || !this.context) throw new Error("Playwright no iniciat");
     const before = this.hits.length;
     const page = this.page;
-    await page.goto(opts.detailUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(800);
+    await page.goto(opts.detailUrl, { waitUntil: "domcontentloaded", timeout: 25000 });
+    await page.waitForTimeout(500);
     await dismissModals(page);
 
-    const downloadPromise = page.waitForEvent("download", { timeout: 10000 }).catch(() => null);
+    const downloadPromise = page.waitForEvent("download", { timeout: 8000 }).catch(() => null);
 
     let clicked = false;
     if (opts.linkHref) {
@@ -137,7 +137,7 @@ export class PlaywrightPdfSession {
       }
     }
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1200);
     const fresh = this.hits.slice(before);
     if (fresh.length) return pickBestPdf(fresh, opts.noticeTitle || opts.linkText);
 
