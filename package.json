@@ -1,6 +1,6 @@
 {
   "name": "pont-familia",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "Puente personal hacia Web Família (GVA): API bridge + webapp accesible",
   "type": "module",
