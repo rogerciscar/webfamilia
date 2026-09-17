@@ -545,8 +545,13 @@ async function mergeCustomIntoDashboard(dash: Dashboard): Promise<Dashboard> {
     students[0] ??
     dash.student ??
     null;
+  const noticesRaw = (dash.notices ?? []).map((n) => ({
+    ...n,
+    attachments: dedupeAttachments(n.attachments || []),
+  }));
+  sharePdfsBySameTitle(noticesRaw as Notice[]);
   const notices = pruneDuplicateNoticePdfs(
-    (dash.notices ?? []).map((n) => ({
+    noticesRaw.map((n) => ({
       ...n,
       attachments: dedupeAttachments(n.attachments || []),
     })),
@@ -888,22 +893,13 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     if (!notice.attachments.some((a) => a.sha256 === att.sha256)) {
       notice.attachments.push(att);
     }
+    // Same title on siblings → attach without another download
+    sharePdfsBySameTitle(notices);
     const looksMenu =
       att.kind === "menu_menjador" ||
       att.kind === "menu_especial" ||
       /men[uú]|menjador|comedor|dieta/i.test(`${att.filename} ${notice.title} ${docText}`);
     if (looksMenu) {
-      // Attach the same PDF onto sibling menjador avisos only (same title family)
-      for (const n of notices) {
-        if (!noticeMatchesFamily(n.title, "menu")) continue;
-        if (n.studentId && notice.studentId && n.studentId === notice.studentId && n.id !== notice.id) {
-          if (!titlesClose(n.title, notice.title)) continue;
-        }
-        n.attachments = n.attachments || [];
-        if (!n.attachments.some((a) => a.sha256 === att.sha256 || a.id === att.id)) {
-          n.attachments.push({ ...att, studentId: n.studentId, noticeId: n.id });
-        }
-      }
       try {
         const buf = cached?.buffer ?? buffer;
         const baseMenu = await extractMenuFromPdf(buf, {
@@ -915,7 +911,6 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
           scrapeErrors.push(`menu buit: ${att.filename}`);
         } else {
           baseMenu.attachmentId = att.id;
-          // Menú del centre: replicate for every student in the account
           const targets = students.length
             ? students
             : [{ id: notice.studentId || "", name: notice.studentName || "" }];
@@ -1038,6 +1033,26 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     if (/men[uú]\s*(del\s*)?(menjador|comedor)/i.test(notice.title) && notice.attachments?.length) {
       continue; // already handled
     }
+    // Same title already has PDFs (from sibling) → reuse, do not download again
+    const titleKey = normalizeNoticeTitle(notice.title);
+    if (titleKey) {
+      const fromSiblings = dedupeAttachments(
+        notices
+          .filter(
+            (n) =>
+              n.id !== notice.id &&
+              normalizeNoticeTitle(n.title) === titleKey &&
+              (n.attachments?.length || 0) > 0,
+          )
+          .flatMap((n) => n.attachments || []),
+      );
+      if (fromSiblings.length) {
+        for (const a of fromSiblings) attachPdfToNotice(notice, a);
+        notice.attachments = dedupeAttachments(notice.attachments || []);
+        if (notice.attachments.length) notice.body = notice.title;
+        continue;
+      }
+    }
     const mid = notice.studentId ? matriculaByStudent.get(notice.studentId) : undefined;
     const hrefCandidates = [
       notice.detailHref,
@@ -1147,25 +1162,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       notice.attachments.push(att);
     }
   }
-  // Share centre docs only to sibling avisos of the same family (not every "informaci" row)
-  for (const att of attachments) {
-    const family = attachmentFamily(att);
-    if (!family) continue;
-    const seed =
-      notices.find((n) => n.id === att.noticeId) ||
-      notices.find((n) => n.attachments?.some((a) => a.id === att.id || a.sha256 === att.sha256));
-    for (const n of notices) {
-      if (!noticeMatchesFamily(n.title, family)) continue;
-      // Same student + different aviso: only if titles are essentially the same
-      if (seed && n.studentId && seed.studentId === n.studentId && n.id !== seed.id) {
-        if (!titlesClose(n.title, seed.title)) continue;
-      }
-      n.attachments = n.attachments || [];
-      if (!n.attachments.some((a) => a.id === att.id || a.sha256 === att.sha256)) {
-        n.attachments.push({ ...att, studentId: n.studentId, noticeId: n.id });
-      }
-    }
-  }
+  // Same title → same PDFs for every sibling
+  sharePdfsBySameTitle(notices);
   for (const notice of notices) {
     notice.attachments = dedupeAttachments(notice.attachments || []);
   }
@@ -1278,29 +1276,8 @@ function mergeUnique<T>(a: T[], b: T[], key: (item: T) => string) {
   return out;
 }
 
-type AttFamily = "menu" | "dossier";
-
-function attachmentFamily(att: { kind?: string; filename?: string }): AttFamily | null {
-  if (att.kind === "menu_menjador" || att.kind === "menu_especial") return "menu";
-  if (/men[uú]|menjador|comedor|dieta/i.test(att.filename || "")) return "menu";
-  if (att.kind === "aviso_doc" || /dossier|infograf/i.test(att.filename || "")) return "dossier";
-  return null;
-}
-
-function noticeMatchesFamily(title: string | undefined, family: AttFamily) {
-  const t = title || "";
-  if (family === "menu") return /men[uú]|menjador|comedor|dieta/i.test(t);
-  return /dossier|infograf/i.test(t);
-}
-
-function titlesClose(a?: string, b?: string) {
-  const na = (a || "").trim().toLowerCase().replace(/\s+/g, " ");
-  const nb = (b || "").trim().toLowerCase().replace(/\s+/g, " ");
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  const a20 = na.slice(0, 20);
-  const b20 = nb.slice(0, 20);
-  return Boolean(a20 && b20 && (na.includes(b20) || nb.includes(a20)));
+function normalizeNoticeTitle(title: string | undefined) {
+  return (title || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function dedupeAttachments<T extends { id: string; sha256?: string }>(list: T[]): T[] {
@@ -1329,7 +1306,38 @@ function dedupeMenus<T extends { attachmentId?: string; studentId?: string; sour
   return out;
 }
 
-/** Drop the same PDF from extra avisos of one student when titles are unrelated. */
+function attachPdfToNotice(notice: Notice, att: Attachment) {
+  notice.attachments = notice.attachments || [];
+  if (notice.attachments.some((a) => a.sha256 === att.sha256 || a.id === att.id)) return;
+  notice.attachments.push({
+    ...att,
+    studentId: notice.studentId,
+    noticeId: notice.id,
+  });
+}
+
+/** Same aviso title → same PDFs for every sibling (no re-download). */
+function sharePdfsBySameTitle(notices: Notice[]) {
+  const byTitle = new Map<string, Attachment[]>();
+  for (const n of notices) {
+    const key = normalizeNoticeTitle(n.title);
+    if (!key) continue;
+    for (const a of n.attachments || []) {
+      const list = byTitle.get(key) || [];
+      if (!list.some((x) => x.sha256 === a.sha256 || x.id === a.id)) list.push(a);
+      byTitle.set(key, list);
+    }
+  }
+  for (const n of notices) {
+    const key = normalizeNoticeTitle(n.title);
+    const shared = byTitle.get(key);
+    if (!shared?.length) continue;
+    for (const a of shared) attachPdfToNotice(n, a);
+    n.attachments = dedupeAttachments(n.attachments || []);
+  }
+}
+
+/** Within one student, drop the same PDF from avisos with a different title. */
 function pruneDuplicateNoticePdfs<
   T extends {
     id: string;
@@ -1359,11 +1367,13 @@ function pruneDuplicateNoticePdfs<
         continue;
       }
       const owner = owners.get(`${n.studentId || "_"}:${hash}`);
-      if (!owner || owner.noticeId === n.id || titlesClose(n.title, owner.title)) {
+      if (
+        !owner ||
+        owner.noticeId === n.id ||
+        normalizeNoticeTitle(n.title) === normalizeNoticeTitle(owner.title)
+      ) {
         kept.push(a);
-        continue;
       }
-      // Same PDF already owned by another aviso of this student with a different title → drop
     }
     return { ...n, attachments: dedupeAttachments(kept) };
   });

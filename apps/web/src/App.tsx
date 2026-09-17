@@ -63,7 +63,7 @@ const MES_SECTIONS: { id: MesSection; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.12";
+const APP_VERSION = "0.3.13";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
