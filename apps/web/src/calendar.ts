@@ -1,4 +1,4 @@
-import type { Activity, ScheduleSlot } from "./api";
+import type { Activity, CustomEventKind, ScheduleSlot } from "./api";
 import { normalizeDay } from "./menu-schedule";
 
 const WEEKDAY_CA = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres", "Dissabte", "Diumenge"] as const;
@@ -6,7 +6,7 @@ const WEEKDAY_SHORT = ["Dl", "Dt", "Dc", "Dj", "Dv", "Ds", "Dg"] as const;
 
 export type CalendarEvent =
   | {
-      kind: "activity";
+      kind: "escola";
       id: string;
       dateIso: string;
       title: string;
@@ -14,13 +14,16 @@ export type CalendarEvent =
       description?: string;
     }
   | {
-      kind: "custom";
+      kind: "puntual" | "setmanal";
       id: string;
       dateIso: string;
       title: string;
       start?: string;
       end?: string;
+      place?: string;
+      notes?: string;
       slotId: string;
+      slot: ScheduleSlot;
     };
 
 export type MonthCell = {
@@ -45,7 +48,6 @@ export function parseIso(iso: string): { y: number; m0: number; d: number } | nu
   return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
 }
 
-/** Normalize activity/notice date strings to YYYY-MM-DD when possible. */
 export function coerceDateIso(raw?: string, iso?: string): string | null {
   if (iso && /^\d{4}-\d{2}-\d{2}/.test(iso)) return iso.slice(0, 10);
   if (!raw) return null;
@@ -59,9 +61,13 @@ export function coerceDateIso(raw?: string, iso?: string): string | null {
 export function weekdayNameFromIso(dateIso: string): string {
   const p = parseIso(dateIso);
   if (!p) return "Dilluns";
-  const js = new Date(p.y, p.m0, p.d).getDay(); // 0=Sun
+  const js = new Date(p.y, p.m0, p.d).getDay();
   const idx = js === 0 ? 6 : js - 1;
   return WEEKDAY_CA[idx]!;
+}
+
+export function weekdaysCa() {
+  return [...WEEKDAY_CA];
 }
 
 export function monthLabelCa(y: number, m0: number) {
@@ -81,7 +87,18 @@ function weekdayIndexMon0(dateIso: string): number {
   return js === 0 ? 6 : js - 1;
 }
 
-/** Expand weekly custom slots onto each matching date in the month; dateIso slots only on that day. */
+export function resolveEventKind(slot: ScheduleSlot): CustomEventKind {
+  if (slot.eventKind === "puntual" || slot.eventKind === "setmanal") return slot.eventKind;
+  return slot.dateIso ? "puntual" : "setmanal";
+}
+
+function inRange(dateIso: string, from?: string, to?: string) {
+  if (from && dateIso < from) return false;
+  if (to && dateIso > to) return false;
+  return true;
+}
+
+/** Expand user custom slots onto days of the month. */
 export function customEventsForMonth(
   slots: ScheduleSlot[],
   y: number,
@@ -89,19 +106,23 @@ export function customEventsForMonth(
 ): CalendarEvent[] {
   const daysInMonth = new Date(y, m0 + 1, 0).getDate();
   const out: CalendarEvent[] = [];
-  const customs = slots.filter((s) => s.custom);
-  for (const slot of customs) {
-    if (slot.dateIso) {
-      const p = parseIso(slot.dateIso);
+  for (const slot of slots.filter((s) => s.custom)) {
+    const eventKind = resolveEventKind(slot);
+    if (eventKind === "puntual") {
+      const dateIso = (slot.dateIso || "").slice(0, 10);
+      const p = parseIso(dateIso);
       if (!p || p.y !== y || p.m0 !== m0) continue;
       out.push({
-        kind: "custom",
-        id: `c-${slot.id}-${slot.dateIso}`,
-        dateIso: slot.dateIso.slice(0, 10),
+        kind: "puntual",
+        id: `c-${slot.id}-${dateIso}`,
+        dateIso,
         title: slot.subject,
         start: slot.start,
         end: slot.end,
+        place: slot.place,
+        notes: slot.notes,
         slotId: slot.id,
+        slot,
       });
       continue;
     }
@@ -109,14 +130,18 @@ export function customEventsForMonth(
     for (let d = 1; d <= daysInMonth; d++) {
       const dateIso = toDateIso(y, m0, d);
       if (normalizeDay(weekdayNameFromIso(dateIso)) !== want) continue;
+      if (!inRange(dateIso, slot.dateFrom, slot.dateTo)) continue;
       out.push({
-        kind: "custom",
+        kind: "setmanal",
         id: `c-${slot.id}-${dateIso}`,
         dateIso,
         title: slot.subject,
         start: slot.start,
         end: slot.end,
+        place: slot.place,
+        notes: slot.notes,
         slotId: slot.id,
+        slot,
       });
     }
   }
@@ -129,7 +154,7 @@ export function activityEvents(activities: Activity[]): CalendarEvent[] {
     const dateIso = coerceDateIso(a.date, a.dateIso);
     if (!dateIso) continue;
     out.push({
-      kind: "activity",
+      kind: "escola",
       id: `a-${a.id}`,
       dateIso,
       title: a.title,
@@ -139,6 +164,8 @@ export function activityEvents(activities: Activity[]): CalendarEvent[] {
   }
   return out;
 }
+
+const KIND_ORDER = { escola: 0, puntual: 1, setmanal: 2 } as const;
 
 export function buildMonthGrid(
   y: number,
@@ -158,10 +185,8 @@ export function buildMonthGrid(
   }
   for (const list of byDate.values()) {
     list.sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === "activity" ? -1 : 1;
-      if (a.kind === "custom" && b.kind === "custom") {
-        return (a.start || "").localeCompare(b.start || "");
-      }
+      if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+      if ("start" in a && "start" in b) return (a.start || "").localeCompare(b.start || "");
       return a.title.localeCompare(b.title);
     });
   }
@@ -211,8 +236,14 @@ export function todayIsoLocal() {
   return toDateIso(n.getFullYear(), n.getMonth(), n.getDate());
 }
 
-export function formatEventTime(e: CalendarEvent) {
-  if (e.kind !== "custom") return "";
-  if (e.start && e.end) return `${e.start}–${e.end}`;
-  return e.start || e.end || "";
+export function formatEventTime(start?: string, end?: string) {
+  if (start && end) return `${start}–${end}`;
+  return start || end || "";
+}
+
+export function addMonthsIso(iso: string, months: number) {
+  const p = parseIso(iso);
+  if (!p) return iso;
+  const d = new Date(p.y, p.m0 + months, p.d);
+  return toDateIso(d.getFullYear(), d.getMonth(), d.getDate());
 }

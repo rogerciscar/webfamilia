@@ -283,7 +283,12 @@ app.post("/api/schedule/custom", async (c) => {
         subject: z.string().min(1),
         studentId: z.string().optional(),
         studentName: z.string().optional(),
+        eventKind: z.enum(["puntual", "setmanal"]).optional(),
         dateIso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        place: z.string().optional(),
+        notes: z.string().optional(),
       })
       .parse(await c.req.json());
     const slot = await upsertCustomSlot(body);
@@ -357,7 +362,7 @@ if (webRootAbs && webRootRel) {
     c.header("pragma", "no-cache");
     c.header("expires", "0");
     c.header("surrogate-control", "no-store");
-    c.header("x-webfamilia-build", "0.3.7");
+    c.header("x-webfamilia-build", "0.3.8");
     return c.html(html);
   };
   // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).

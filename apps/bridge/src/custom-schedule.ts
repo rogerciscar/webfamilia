@@ -1,10 +1,11 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
-import type { ScheduleSlot } from "@pont/shared";
+import type { CustomEventKind, ScheduleSlot } from "@pont/shared";
 import { DATA_DIR } from "./vault";
 
 const FILE = path.join(DATA_DIR, "custom-schedule.json");
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 type Store = { slots: ScheduleSlot[] };
 
@@ -85,6 +86,20 @@ async function writeStore(store: Store) {
   await writeFile(FILE, JSON.stringify(store, null, 2), { mode: 0o600 });
 }
 
+function cleanIso(v?: string) {
+  if (!v) return undefined;
+  const t = v.trim().slice(0, 10);
+  return ISO.test(t) ? t : undefined;
+}
+
+function resolveKind(slot: {
+  eventKind?: CustomEventKind;
+  dateIso?: string;
+}): CustomEventKind {
+  if (slot.eventKind === "puntual" || slot.eventKind === "setmanal") return slot.eventKind;
+  return slot.dateIso ? "puntual" : "setmanal";
+}
+
 export async function listCustomSlots(studentId?: string) {
   const store = await readStore();
   if (!studentId) return store.slots;
@@ -94,18 +109,31 @@ export async function listCustomSlots(studentId?: string) {
 export async function upsertCustomSlot(slot: Omit<ScheduleSlot, "id" | "custom"> & { id?: string }) {
   const store = await readStore();
   const id = slot.id || `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const dateIso =
-    slot.dateIso && /^\d{4}-\d{2}-\d{2}/.test(slot.dateIso) ? slot.dateIso.slice(0, 10) : undefined;
+  const eventKind = resolveKind(slot);
+  const dateIso = cleanIso(slot.dateIso);
+  const dateFrom = cleanIso(slot.dateFrom);
+  const dateTo = cleanIso(slot.dateTo);
+  if (eventKind === "puntual" && !dateIso) throw new Error("Cal la data de l'activitat puntual.");
+  if (eventKind === "setmanal") {
+    if (!slot.day?.trim()) throw new Error("Cal el dia de la setmana.");
+    if (!dateFrom || !dateTo) throw new Error("Cal data d'inici i data de fi.");
+    if (dateFrom > dateTo) throw new Error("La data d'inici ha de ser anterior a la de fi.");
+  }
   const next: ScheduleSlot = {
     id,
     day: slot.day,
-    start: slot.start,
-    end: slot.end,
-    subject: slot.subject,
+    subject: slot.subject.trim(),
     studentId: slot.studentId,
     studentName: slot.studentName,
     custom: true,
-    ...(dateIso ? { dateIso } : {}),
+    eventKind,
+    start: slot.start || undefined,
+    end: slot.end || undefined,
+    place: slot.place?.trim() || undefined,
+    notes: slot.notes?.trim() || undefined,
+    ...(eventKind === "puntual"
+      ? { dateIso }
+      : { dateFrom, dateTo, dateIso: undefined }),
   };
   const idx = store.slots.findIndex((s) => s.id === id);
   if (idx >= 0) store.slots[idx] = next;

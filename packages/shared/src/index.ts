@@ -107,6 +107,8 @@ export type Subject = {
   studentName?: string;
 };
 
+export type CustomEventKind = "puntual" | "setmanal";
+
 export type ScheduleSlot = {
   id: string;
   day: string;
@@ -116,8 +118,16 @@ export type ScheduleSlot = {
   studentId?: string;
   studentName?: string;
   custom?: boolean;
-  /** One-off personal event on this calendar day (YYYY-MM-DD). */
+  /** User-created calendar event type. */
+  eventKind?: CustomEventKind;
+  /** Puntual: single calendar day (YYYY-MM-DD). */
   dateIso?: string;
+  /** Setmanal: first day the recurrence is active. */
+  dateFrom?: string;
+  /** Setmanal: last day the recurrence is active. */
+  dateTo?: string;
+  place?: string;
+  notes?: string;
 };
 
 export type MenuNutrition = {

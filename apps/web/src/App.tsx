@@ -52,7 +52,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.7";
+const APP_VERSION = "0.3.8";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -119,7 +119,6 @@ export default function App() {
   const [unlockPassword, setUnlockPassword] = useState("");
   const [studentId, setStudentId] = useState<string | null>(null);
   const [scheduleDay, setScheduleDay] = useState<string>(() => todayWeekday());
-  const [slotForm, setSlotForm] = useState({ subject: "", start: "18:00", end: "19:00" });
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [pdfView, setPdfView] = useState<{ url: string; title: string } | null>(null);
   const [photoTick, setPhotoTick] = useState(0);
@@ -458,55 +457,49 @@ export default function App() {
   const activities = forStudent(dashboard.activities, sid);
   const subjects = forStudent(dashboard.subjects ?? [], sid);
   const daySlots = schedule
-    .filter((s) => !s.dateIso && normalizeDay(s.day) === scheduleDay)
+    .filter((s) => {
+      if (s.eventKind === "puntual" || s.dateIso) return false;
+      return normalizeDay(s.day) === scheduleDay;
+    })
     .slice()
     .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
 
-  async function onAddSlot() {
-    if (!sid || !slotForm.subject.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await saveCustomSlot({
-        day: scheduleDay,
-        start: slotForm.start,
-        end: slotForm.end,
-        subject: slotForm.subject.trim(),
-        studentId: sid,
-        studentName: student?.name,
-      });
-      setDashboard(res.dashboard);
-      setSlotForm((f) => ({ ...f, subject: "" }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No s'ha pogut afegir");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onAddCalendarSlot(input: {
+  async function onSaveCalendarDraft(draft: {
+    id?: string;
+    eventKind: "puntual" | "setmanal";
+    subject: string;
     day: string;
     dateIso: string;
+    dateFrom: string;
+    dateTo: string;
     start: string;
     end: string;
-    subject: string;
+    place: string;
+    notes: string;
   }) {
     if (!sid) return;
     setBusy(true);
     setError(null);
     try {
       const res = await saveCustomSlot({
-        day: input.day,
-        dateIso: input.dateIso,
-        start: input.start,
-        end: input.end,
-        subject: input.subject,
+        id: draft.id,
+        eventKind: draft.eventKind,
+        subject: draft.subject,
+        day: draft.day,
         studentId: sid,
         studentName: student?.name,
+        start: draft.start || undefined,
+        end: draft.end || undefined,
+        place: draft.place || undefined,
+        notes: draft.notes || undefined,
+        ...(draft.eventKind === "puntual"
+          ? { dateIso: draft.dateIso }
+          : { dateFrom: draft.dateFrom, dateTo: draft.dateTo }),
       });
       setDashboard(res.dashboard);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No s'ha pogut afegir");
+      setError(err instanceof Error ? err.message : "No s'ha pogut desar");
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -516,14 +509,16 @@ export default function App() {
     const ok = window.confirm(
       label ? `Vols esborrar «${label}»?` : "Vols esborrar aquest bloc?",
     );
-    if (!ok) return;
+    if (!ok) return false;
     setBusy(true);
     setError(null);
     try {
       const res = await removeCustomSlot(id);
       setDashboard(res.dashboard);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut esborrar");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -968,38 +963,13 @@ export default function App() {
               })}
             </div>
           )}
-          <form
-            className="slot-add-line"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void onAddSlot();
-            }}
-          >
-            <input
-              value={slotForm.subject}
-              onChange={(e) => setSlotForm((f) => ({ ...f, subject: e.target.value }))}
-              placeholder={`Bloc · ${scheduleDay.slice(0, 3)}`}
-              required
-              aria-label="Nom del bloc"
-            />
-            <input
-              type="time"
-              value={slotForm.start}
-              onChange={(e) => setSlotForm((f) => ({ ...f, start: e.target.value }))}
-              required
-              aria-label="Inici"
-            />
-            <input
-              type="time"
-              value={slotForm.end}
-              onChange={(e) => setSlotForm((f) => ({ ...f, end: e.target.value }))}
-              required
-              aria-label="Fi"
-            />
-            <button type="submit" disabled={busy || !sid} title="Afegir">
-              +
+          <p className="hint">
+            Les activitats pròpies (puntuals o setmanals) s’afegeixen i s’editen des de{" "}
+            <button type="button" className="linkish" onClick={() => setTab("calendari")}>
+              Calendari
             </button>
-          </form>
+            .
+          </p>
         </Section>
       )}
       {tab === "calendari" && (
@@ -1008,9 +978,8 @@ export default function App() {
             activities={activities}
             schedule={forStudent(dashboard.schedule ?? [], sid)}
             studentId={sid}
-            studentName={student?.name}
             busy={busy}
-            onAddCustom={onAddCalendarSlot}
+            onSaveCustom={onSaveCalendarDraft}
             onDeleteCustom={onDeleteSlot}
           />
         </Section>
