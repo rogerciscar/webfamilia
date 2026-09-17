@@ -60,7 +60,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.10";
+const APP_VERSION = "0.3.11";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -696,8 +696,8 @@ export default function App() {
                       </td>
                       <td>
                         {(n.attachments?.length ?? 0) > 0
-                          ? n.attachments!.map((a) => (
-                              <div key={a.id}>
+                          ? uniqueAttachments(n.attachments!).map((a) => (
+                              <div key={a.sha256 || a.id}>
                                 <button
                                   type="button"
                                   className="linkish"
@@ -1049,6 +1049,18 @@ function forStudent<T extends { studentId?: string }>(items: T[], sid?: string |
   return items.filter((i) => i.studentId === sid);
 }
 
+function uniqueAttachments<T extends { id: string; sha256?: string }>(list: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const a of list) {
+    const key = a.sha256 || a.id;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
+}
+
 function forStudentMenus(
   menus: MenuExtraction[],
   sid: string | null | undefined,
@@ -1070,7 +1082,10 @@ function forStudentMenus(
     }
     return false;
   });
-  return [...own, ...shared];
+  return [...own, ...shared].filter((menu, idx, arr) => {
+    const key = `${menu.attachmentId || menu.sourceFile || ""}:${menu.studentId || sid || ""}`;
+    return arr.findIndex((m) => `${m.attachmentId || m.sourceFile || ""}:${m.studentId || sid || ""}` === key) === idx;
+  });
 }
 
 function Section({
