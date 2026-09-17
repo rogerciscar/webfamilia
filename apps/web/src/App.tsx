@@ -27,6 +27,14 @@ import {
   normalizeDay,
   saladLabel,
 } from "./menu-schedule";
+import {
+  addDaysIso,
+  mondayOfWeek,
+  parseIso,
+  resolveEventKind,
+  todayIsoLocal,
+  weekLabelCa,
+} from "./calendar";
 
 type Tab =
   | "agenda"
@@ -52,7 +60,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.9";
+const APP_VERSION = "0.3.10";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -119,6 +127,7 @@ export default function App() {
   const [unlockPassword, setUnlockPassword] = useState("");
   const [studentId, setStudentId] = useState<string | null>(null);
   const [scheduleDay, setScheduleDay] = useState<string>(() => todayWeekday());
+  const [weekMonday, setWeekMonday] = useState(() => mondayOfWeek(todayIsoLocal()));
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [pdfView, setPdfView] = useState<{ url: string; title: string } | null>(null);
   const [photoTick, setPhotoTick] = useState(0);
@@ -443,11 +452,25 @@ export default function App() {
   const attachmentsAll = dashboard.attachments ?? [];
   const baseNotices = forStudent(dashboard.notices, sid);
   const menus = forStudentMenus(dashboard.menus ?? [], sid, attachmentsAll, baseNotices);
+  const dayIndex = Math.max(0, WEEK_DAYS.indexOf(scheduleDay as (typeof WEEK_DAYS)[number]));
+  const scheduleDateIso = addDaysIso(weekMonday, dayIndex);
   const menuLunchDinner = menuSlotsForDay(menus, scheduleDay, sid);
-  const schedule = [
-    ...forStudent(dashboard.schedule ?? [], sid),
+  const baseSchedule = forStudent(dashboard.schedule ?? [], sid);
+  const daySlots = [
+    ...baseSchedule.filter((s) => {
+      const kind = s.custom ? resolveEventKind(s) : null;
+      if (kind === "puntual" || s.dateIso) return s.dateIso === scheduleDateIso;
+      if (normalizeDay(s.day) !== scheduleDay) return false;
+      if (kind === "setmanal" && (s.dateFrom || s.dateTo)) {
+        if (s.dateFrom && scheduleDateIso < s.dateFrom) return false;
+        if (s.dateTo && scheduleDateIso > s.dateTo) return false;
+      }
+      return true;
+    }),
     ...menuLunchDinner,
-  ];
+  ]
+    .slice()
+    .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
   const notices = forStudent(dashboard.notices, sid).sort((a, b) =>
     (a.dateIso || a.date || "").localeCompare(b.dateIso || b.date || ""),
   );
@@ -456,13 +479,16 @@ export default function App() {
   const messages = forStudent(dashboard.messages, sid);
   const activities = forStudent(dashboard.activities, sid);
   const subjects = forStudent(dashboard.subjects ?? [], sid);
-  const daySlots = schedule
-    .filter((s) => {
-      if (s.eventKind === "puntual" || s.dateIso) return false;
-      return normalizeDay(s.day) === scheduleDay;
-    })
-    .slice()
-    .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
+
+  function shiftHorariWeek(delta: number) {
+    setWeekMonday((m) => addDaysIso(m, delta * 7));
+  }
+
+  function goHorariToday() {
+    const t = todayIsoLocal();
+    setWeekMonday(mondayOfWeek(t));
+    setScheduleDay(todayWeekday());
+  }
 
   async function onSaveCalendarDraft(draft: {
     id?: string;
@@ -911,17 +937,47 @@ export default function App() {
       )}
       {tab === "horari" && (
         <Section title="Horari" count={daySlots.length}>
-          <div className="students" role="tablist" aria-label="Dies">
-            {WEEK_DAYS.map((d) => (
-              <button
-                key={d}
-                type="button"
-                className={scheduleDay === d ? "active" : ""}
-                onClick={() => setScheduleDay(d)}
-              >
-                {d.slice(0, 3)}
-              </button>
-            ))}
+          <div className="horari-weekbar">
+            <button
+              type="button"
+              className="ghost cal-nav"
+              aria-label="Setmana anterior"
+              onClick={() => shiftHorariWeek(-1)}
+            >
+              ‹
+            </button>
+            <div className="horari-weeklabel">
+              <strong>{weekLabelCa(weekMonday)}</strong>
+              <span>{scheduleDateIso}</span>
+            </div>
+            <button
+              type="button"
+              className="ghost cal-nav"
+              aria-label="Setmana següent"
+              onClick={() => shiftHorariWeek(1)}
+            >
+              ›
+            </button>
+            <button type="button" className="ghost cal-today" onClick={goHorariToday}>
+              Avui
+            </button>
+          </div>
+          <div className="students horari-days" role="tablist" aria-label="Dies">
+            {WEEK_DAYS.map((d, i) => {
+              const dateIso = addDaysIso(weekMonday, i);
+              const dayNum = parseIso(dateIso)?.d;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  className={scheduleDay === d ? "active" : ""}
+                  onClick={() => setScheduleDay(d)}
+                >
+                  <span className="horari-dayname">{d.slice(0, 3)}</span>
+                  <span className="horari-daynum">{dayNum}</span>
+                </button>
+              );
+            })}
           </div>
           {daySlots.length === 0 && <Empty message="Cap classe aquest dia." />}
           {daySlots.length > 0 && (

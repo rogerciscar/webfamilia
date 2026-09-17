@@ -939,29 +939,6 @@ button.linkish:hover { transform: none; opacity: 0.85; }
 
 /* Monthly calendar */
 .cal { display: grid; gap: 0.85rem; }
-.cal-viewseg {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.3rem;
-  padding: 0.25rem;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--mist) 70%, white);
-  max-width: 280px;
-}
-.cal-viewseg button {
-  background: transparent;
-  color: var(--ink-soft);
-  border-radius: 12px;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  min-height: 40px;
-}
-.cal-viewseg button.active {
-  background: white;
-  color: var(--brand-deep);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
-}
 .cal-toolbar {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
@@ -982,88 +959,42 @@ button.linkish:hover { transform: none; opacity: 0.85; }
   line-height: 1;
 }
 .cal-today { padding: 0.45rem 0.75rem; font-size: 0.85rem; }
-.cal-week {
+
+.horari-weekbar {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.3rem;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
 }
-.cal-weekday {
+.horari-weeklabel {
   display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 0.25rem;
-  align-content: start;
-  min-height: 7.5rem;
-  padding: 0.45rem 0.3rem 0.4rem;
-  border-radius: 12px;
-  background: color-mix(in srgb, white 70%, var(--mist));
-  color: var(--ink);
-  border: 1px solid transparent;
-  text-align: left;
+  justify-items: center;
+  gap: 0.1rem;
+  text-align: center;
 }
-.cal-weekday.today { border-color: color-mix(in srgb, var(--sea) 55%, transparent); }
-.cal-weekday.selected {
-  background: color-mix(in srgb, var(--brand) 16%, white);
-  border-color: var(--brand-deep);
-}
-.cal-weekdow {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--ink-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.cal-weeknum {
+.horari-weeklabel strong {
   font-family: var(--font-display);
-  font-size: 1.15rem;
-  line-height: 1;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
 }
-.cal-weekev {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.horari-weeklabel span {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.horari-days button {
   display: grid;
-  gap: 0.2rem;
-  width: 100%;
+  gap: 0.1rem;
+  justify-items: center;
+  min-width: 3.1rem;
+  padding: 0.45rem 0.5rem;
 }
-.cal-weekev .chip {
-  font-size: 0.62rem;
-  line-height: 1.2;
-  padding: 0.2rem 0.28rem;
-  border-radius: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-.cal-weekev .chip-escola {
-  background: color-mix(in srgb, var(--coral) 18%, white);
-  color: var(--coral-deep);
-}
-.cal-weekev .chip-puntual {
-  background: color-mix(in srgb, var(--sea) 18%, white);
-  color: var(--brand-deep);
-}
-.cal-weekev .chip-setmanal {
-  background: color-mix(in srgb, var(--brand) 14%, white);
-  color: var(--brand-deep);
-}
-.cal-weekev .chip.more { color: var(--ink-soft); background: transparent; font-weight: 500; }
-@media (max-width: 640px) {
-  .cal-week {
-    grid-template-columns: 1fr;
-    gap: 0.4rem;
-  }
-  .cal-weekday {
-    grid-template-columns: auto auto 1fr;
-    grid-template-rows: auto;
-    align-items: center;
-    min-height: 0;
-    gap: 0.45rem 0.55rem;
-  }
-  .cal-weekev {
-    grid-column: 1 / -1;
-    grid-template-columns: 1fr;
-  }
+.horari-dayname { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; }
+.horari-daynum {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  line-height: 1;
 }
 .cal-legend {
   display: flex;
