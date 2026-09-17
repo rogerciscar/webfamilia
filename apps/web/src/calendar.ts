@@ -247,3 +247,97 @@ export function addMonthsIso(iso: string, months: number) {
   const d = new Date(p.y, p.m0 + months, p.d);
   return toDateIso(d.getFullYear(), d.getMonth(), d.getDate());
 }
+
+export function addDaysIso(iso: string, days: number) {
+  const p = parseIso(iso);
+  if (!p) return iso;
+  const d = new Date(p.y, p.m0, p.d + days);
+  return toDateIso(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** Monday (ISO week) for the given day. */
+export function mondayOfWeek(dateIso: string) {
+  const p = parseIso(dateIso);
+  if (!p) return dateIso;
+  const d = new Date(p.y, p.m0, p.d);
+  const js = d.getDay();
+  const delta = js === 0 ? -6 : 1 - js;
+  d.setDate(d.getDate() + delta);
+  return toDateIso(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export function weekLabelCa(mondayIso: string) {
+  const sun = addDaysIso(mondayIso, 6);
+  const a = parseIso(mondayIso);
+  const b = parseIso(sun);
+  if (!a || !b) return mondayIso;
+  const fmt = (y: number, m0: number, d: number) => {
+    const raw = new Date(y, m0, d).toLocaleDateString("ca-ES", { day: "numeric", month: "short" });
+    return raw.replace(/\.$/, "");
+  };
+  if (a.y === b.y && a.m0 === b.m0) return `${a.d}–${b.d} ${fmt(a.y, a.m0, a.d).replace(/^\d+\s*/, "")} ${a.y}`;
+  if (a.y === b.y) return `${fmt(a.y, a.m0, a.d)} – ${fmt(b.y, b.m0, b.d)} ${a.y}`;
+  return `${fmt(a.y, a.m0, a.d)} ${a.y} – ${fmt(b.y, b.m0, b.d)} ${b.y}`;
+}
+
+export function buildWeekCells(
+  mondayIso: string,
+  events: CalendarEvent[],
+  todayIso: string,
+): MonthCell[] {
+  const byDate = new Map<string, CalendarEvent[]>();
+  for (const e of events) {
+    const list = byDate.get(e.dateIso) || [];
+    list.push(e);
+    byDate.set(e.dateIso, list);
+  }
+  for (const list of byDate.values()) {
+    list.sort((a, b) => {
+      if (a.kind !== b.kind) return KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
+      if ("start" in a && "start" in b) return (a.start || "").localeCompare(b.start || "");
+      return a.title.localeCompare(b.title);
+    });
+  }
+  const cells: MonthCell[] = [];
+  for (let i = 0; i < 7; i++) {
+    const dateIso = addDaysIso(mondayIso, i);
+    const p = parseIso(dateIso);
+    cells.push({
+      dateIso,
+      day: p?.d ?? i + 1,
+      inMonth: true,
+      isToday: dateIso === todayIso,
+      events: byDate.get(dateIso) || [],
+    });
+  }
+  return cells;
+}
+
+/** Collect events covering a week that may span two months. */
+export function eventsForWeek(
+  activities: Activity[],
+  schedule: ScheduleSlot[],
+  mondayIso: string,
+): CalendarEvent[] {
+  const sun = addDaysIso(mondayIso, 6);
+  const months = new Set<string>();
+  for (let i = 0; i < 7; i++) {
+    const p = parseIso(addDaysIso(mondayIso, i));
+    if (p) months.add(`${p.y}-${p.m0}`);
+  }
+  const customs: CalendarEvent[] = [];
+  for (const key of months) {
+    const [y, m0] = key.split("-").map(Number);
+    customs.push(...customEventsForMonth(schedule, y!, m0!));
+  }
+  const seen = new Set<string>();
+  const deduped = customs.filter((e) => {
+    if (seen.has(e.id)) return false;
+    seen.add(e.id);
+    return e.dateIso >= mondayIso && e.dateIso <= sun;
+  });
+  const acts = activityEvents(activities).filter(
+    (e) => e.dateIso >= mondayIso && e.dateIso <= sun,
+  );
+  return [...acts, ...deduped];
+}
