@@ -7,7 +7,7 @@ import { DATA_DIR } from "./vault";
 const FILE = path.join(DATA_DIR, "custom-schedule.json");
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-type Store = { slots: ScheduleSlot[] };
+type Store = { slots: ScheduleSlot[]; updatedAt?: string };
 
 const pool = process.env.DATABASE_URL
   ? new pg.Pool({
@@ -15,6 +15,9 @@ const pool = process.env.DATABASE_URL
       ssl: process.env.DATABASE_SSL === "false" ? undefined : { rejectUnauthorized: false },
     })
   : null;
+
+/** Last local write (covers empty store after delete). */
+let lastWriteAt: string | undefined;
 
 let pgReady: Promise<void> | null = null;
 
@@ -48,19 +51,25 @@ async function readStore(): Promise<Store> {
     const res = await pool!.query(`SELECT payload FROM pont_custom_schedule ORDER BY updated_at ASC`);
     return {
       slots: res.rows.map((r) => r.payload as ScheduleSlot).filter(Boolean),
+      updatedAt: lastWriteAt,
     };
   }
   try {
     await access(FILE);
     const raw = await readFile(FILE, "utf8");
     const data = JSON.parse(raw) as Store;
-    return { slots: Array.isArray(data.slots) ? data.slots : [] };
+    return {
+      slots: Array.isArray(data.slots) ? data.slots : [],
+      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : lastWriteAt,
+    };
   } catch {
-    return { slots: [] };
+    return { slots: [], updatedAt: lastWriteAt };
   }
 }
 
 async function writeStore(store: Store) {
+  lastWriteAt = new Date().toISOString();
+  store.updatedAt = lastWriteAt;
   if (pool) {
     await ensurePg();
     const client = await pool!.connect();
@@ -177,6 +186,26 @@ export async function deleteCustomSlot(id: string) {
   const store = await readStore();
   store.slots = store.slots.filter((s) => s.id !== id);
   await writeStore(store);
+}
+
+/** Max update time for custom slots (for cross-session sync). */
+export async function getCustomScheduleUpdatedAt(): Promise<string | undefined> {
+  if (pool) {
+    await ensurePg();
+    try {
+      const res = await pool!.query<{ m: Date | string | null }>(
+        `SELECT MAX(updated_at) AS m FROM pont_custom_schedule`,
+      );
+      const raw = res.rows[0]?.m;
+      const db = raw ? new Date(raw).toISOString() : undefined;
+      if (db && lastWriteAt) return db >= lastWriteAt ? db : lastWriteAt;
+      return db || lastWriteAt;
+    } catch {
+      return lastWriteAt;
+    }
+  }
+  const store = await readStore();
+  return store.updatedAt || lastWriteAt;
 }
 
 export function customScheduleBackend() {

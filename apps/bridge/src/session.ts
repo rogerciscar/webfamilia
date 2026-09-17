@@ -28,9 +28,9 @@ import { storePdf } from "./attachments";
 import { extractMenuFromPdf } from "./menu-pdf";
 import { PlaywrightPdfSession } from "./playwright-pdf";
 import { mockAllowed, passwordsMatch } from "./browser-session";
-import { listCustomSlots } from "./custom-schedule";
+import { listCustomSlots, getCustomScheduleUpdatedAt } from "./custom-schedule";
 import { loadDashboardCache, saveDashboardCache } from "./dashboard-cache";
-import { listPhotoStudentIds, photoPublicUrl } from "./student-photos";
+import { listPhotoStudentIds, photoPublicUrl, photosCount, photosUpdatedAt } from "./student-photos";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -126,6 +126,7 @@ export async function getStatus(opts?: {
             ? "live"
             : "mock";
   const dash = state.lastDashboard;
+  const sync = await getSyncMeta();
   return {
     authenticated: browserAuth,
     mode: browserAuth ? mode : "mock",
@@ -149,6 +150,42 @@ export async function getStatus(opts?: {
       menus: dash?.menus?.length ?? 0,
       notices: dash?.notices?.length ?? 0,
     },
+    sync,
+  };
+}
+
+/** Lightweight fingerprint so clients detect server-side changes across devices. */
+export async function getSyncMeta(): Promise<{
+  revision: string;
+  capturedAt?: string;
+  customUpdatedAt?: string;
+  scrapeLastAt?: string;
+  photosUpdatedAt?: string;
+}> {
+  await hydrateCacheOnce();
+  const dash = state.lastDashboard;
+  const customUpdatedAt = await getCustomScheduleUpdatedAt();
+  const photosAt = await photosUpdatedAt();
+  const photoN = await photosCount();
+  const capturedAt = dash?.capturedAt;
+  const scrapeLastAt = state.scrapeLastAt ?? capturedAt;
+  const revision = [
+    capturedAt || "",
+    customUpdatedAt || "",
+    scrapeLastAt || "",
+    photosAt || "",
+    `p${photoN}`,
+    `a${dash?.attachments?.length ?? 0}`,
+    `n${dash?.notices?.length ?? 0}`,
+    `m${dash?.menus?.length ?? 0}`,
+    `s${dash?.schedule?.length ?? 0}`,
+  ].join("|");
+  return {
+    revision,
+    capturedAt,
+    customUpdatedAt,
+    scrapeLastAt,
+    photosUpdatedAt: photosAt,
   };
 }
 

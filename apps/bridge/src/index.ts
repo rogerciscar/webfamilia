@@ -14,6 +14,7 @@ import {
   getCachedDashboard,
   getDashboard,
   getStatus,
+  getSyncMeta,
   getStructureReport,
   loginLive,
   rescanLive,
@@ -107,6 +108,12 @@ app.get("/api/session", async (c) => {
     if (dash) return c.json({ ...session, dashboard: dash });
   }
   return c.json(session);
+});
+
+/** Cheap change check for multi-device / multi-tab sync (no full dashboard). */
+app.get("/api/sync", async (c) => {
+  if (!(await requireBrowserSession(c))) return c.json({ ok: false, error: "Cal sessió" }, 401);
+  return c.json({ ok: true, sync: await getSyncMeta() });
 });
 
 app.post("/api/session/mock", async (c) => {
@@ -363,7 +370,7 @@ if (webRootAbs && webRootRel) {
     c.header("pragma", "no-cache");
     c.header("expires", "0");
     c.header("surrogate-control", "no-store");
-    c.header("x-webfamilia-build", "0.3.14");
+    c.header("x-webfamilia-build", "0.3.15");
     return c.html(html);
   };
   // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).

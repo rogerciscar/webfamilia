@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   fetchSession,
+  fetchSyncMeta,
   forget,
   login,
   logout,
@@ -64,7 +65,9 @@ const MES_SECTIONS: { id: MesSection; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.14";
+const APP_VERSION = "0.3.15";
+const SYNC_POLL_MS = 25_000;
+const SYNC_CHANNEL = "pont-familia-sync";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -137,11 +140,71 @@ export default function App() {
   const [pdfView, setPdfView] = useState<{ url: string; title: string } | null>(null);
   const [photoTick, setPhotoTick] = useState(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const syncRevisionRef = useRef("");
+  const syncInFlightRef = useRef(false);
+
+  function noteSyncRevision(status?: SessionStatus | null) {
+    if (status?.sync?.revision) syncRevisionRef.current = status.sync.revision;
+  }
+
+  function broadcastSync(revision?: string) {
+    try {
+      const bc = new BroadcastChannel(SYNC_CHANNEL);
+      bc.postMessage({ revision: revision || syncRevisionRef.current || String(Date.now()) });
+      bc.close();
+    } catch {
+      /* BroadcastChannel no disponible */
+    }
+  }
+
+  async function refreshSyncStamp() {
+    try {
+      const meta = await fetchSyncMeta();
+      syncRevisionRef.current = meta.sync.revision;
+      broadcastSync(meta.sync.revision);
+    } catch {
+      broadcastSync();
+    }
+  }
+
+  async function syncFromServer(opts?: { force?: boolean }) {
+    if (syncInFlightRef.current) return;
+    if (!opts?.force && typeof document !== "undefined" && document.hidden) return;
+    syncInFlightRef.current = true;
+    try {
+      if (!opts?.force && syncRevisionRef.current) {
+        try {
+          const meta = await fetchSyncMeta();
+          if (meta.sync.revision === syncRevisionRef.current) return;
+        } catch {
+          /* segueix amb sessió completa */
+        }
+      }
+      const status = await fetchSession();
+      noteSyncRevision(status);
+      setSession(status);
+      if (!status.authenticated) {
+        setDashboard(null);
+        return;
+      }
+      if (status.dashboard) {
+        setDashboard(status.dashboard);
+        setPhotoTick((t) => t + 1);
+      }
+    } catch {
+      /* manté la UI si hi ha un error de xarxa puntual */
+    } finally {
+      syncInFlightRef.current = false;
+    }
+  }
 
   function revealApp(dash: Dashboard, nextSession?: SessionStatus) {
     setEntering(true);
     setDashboard(dash);
-    if (nextSession) setSession(nextSession);
+    if (nextSession) {
+      setSession(nextSession);
+      noteSyncRevision(nextSession);
+    }
     window.setTimeout(() => setEntering(false), 1100);
   }
 
@@ -157,6 +220,7 @@ export default function App() {
         const status = await fetchSession();
         if (cancelled) return;
         setSession(status);
+        noteSyncRevision(status);
         if (status.authenticated && status.dashboard) {
           revealApp(status.dashboard, status);
           return;
@@ -172,6 +236,52 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!dashboard) return;
+    let cancelled = false;
+    let debounce: number | undefined;
+    const schedule = (force: boolean) => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => {
+        if (!cancelled) void syncFromServer({ force });
+      }, force ? 250 : 0);
+    };
+    const onVisible = () => {
+      if (!document.hidden) schedule(true);
+    };
+    const onFocus = () => schedule(true);
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) schedule(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow);
+    const poll = window.setInterval(() => {
+      if (!document.hidden) void syncFromServer();
+    }, SYNC_POLL_MS);
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel(SYNC_CHANNEL);
+      bc.onmessage = (ev) => {
+        const rev = (ev.data as { revision?: string } | null)?.revision;
+        if (rev && rev === syncRevisionRef.current) return;
+        if (!cancelled) void syncFromServer({ force: true });
+      };
+    } catch {
+      /* ignore */
+    }
+    schedule(true);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(debounce);
+      window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pageshow", onPageShow);
+      bc?.close();
+    };
+  }, [Boolean(dashboard)]);
 
   useEffect(() => {
     if (!dashboard?.students?.length) return;
@@ -303,6 +413,7 @@ export default function App() {
       });
       setPhotoTick(Date.now());
       setCropFile(null);
+      void refreshSyncStamp();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut pujar la foto");
     } finally {
@@ -533,6 +644,7 @@ export default function App() {
           : { days: draft.days, dateFrom: draft.dateFrom, dateTo: draft.dateTo }),
       });
       setDashboard(res.dashboard);
+      void refreshSyncStamp();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut desar");
       throw err;
@@ -551,6 +663,7 @@ export default function App() {
     try {
       const res = await removeCustomSlot(id);
       setDashboard(res.dashboard);
+      void refreshSyncStamp();
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No s'ha pogut esborrar");

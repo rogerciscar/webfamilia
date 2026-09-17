@@ -244,3 +244,17 @@ export async function photosCount(): Promise<number> {
     return 0;
   }
 }
+
+export async function photosUpdatedAt(): Promise<string | undefined> {
+  if (!pool) return undefined;
+  try {
+    await ensurePg();
+    const res = await pool!.query<{ m: Date | string | null }>(
+      `SELECT MAX(updated_at) AS m FROM pont_student_photos`,
+    );
+    const raw = res.rows[0]?.m;
+    return raw ? new Date(raw).toISOString() : undefined;
+  } catch {
+    return undefined;
+  }
+}

@@ -197,6 +197,13 @@ export type SessionStatus = {
     menus?: number;
     notices?: number;
   };
+  sync?: {
+    revision: string;
+    capturedAt?: string;
+    customUpdatedAt?: string;
+    scrapeLastAt?: string;
+    photosUpdatedAt?: string;
+  };
   storage?: {
     backend: "postgres" | "file" | "none";
     persistent: boolean;
@@ -227,6 +234,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchSession() {
   return request<SessionStatus>("/api/session");
+}
+
+export function fetchSyncMeta() {
+  return request<{ ok: boolean; sync: NonNullable<SessionStatus["sync"]> }>("/api/sync");
 }
 
 export function startMock() {

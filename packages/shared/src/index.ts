@@ -230,6 +230,14 @@ export type SessionStatus = {
     menus?: number;
     notices?: number;
   };
+  /** Fingerprint for cross-session / multi-device refresh. */
+  sync?: {
+    revision: string;
+    capturedAt?: string;
+    customUpdatedAt?: string;
+    scrapeLastAt?: string;
+    photosUpdatedAt?: string;
+  };
   storage?: {
     backend: "postgres" | "file" | "none";
     persistent: boolean;
