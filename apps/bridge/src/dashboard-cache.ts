@@ -38,6 +38,21 @@ function ensurePg() {
 /** Persist last live dashboard (metadata + menus). PDF bytes stay on disk/volume. */
 export async function saveDashboardCache(dashboard: Dashboard) {
   if (dashboard.source !== "live") return;
+  const existing = await loadDashboardCache();
+  if (existing && cacheContentScore(dashboard) + 8 < cacheContentScore(existing) * 0.4) {
+    const nextEmpty =
+      (dashboard.notices?.length || 0) === 0 &&
+      (dashboard.schedule || []).filter((s) => !s.custom).length === 0;
+    const prevRich =
+      (existing.notices?.length || 0) >= 3 ||
+      (existing.schedule || []).filter((s) => !s.custom).length >= 4;
+    if (nextEmpty && prevRich) {
+      console.warn(
+        `[webfamilia] skip cache save of hollow dashboard (kept richer cache · notices=${existing.notices.length} schedule=${existing.schedule.length})`,
+      );
+      return;
+    }
+  }
   const slim = {
     ...dashboard,
     diagnostics: dashboard.diagnostics
@@ -66,6 +81,16 @@ export async function saveDashboardCache(dashboard: Dashboard) {
   }
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(FILE, JSON.stringify(slim), { mode: 0o600 });
+}
+
+function cacheContentScore(d: Dashboard) {
+  return (
+    (d.students?.length || 0) * 8 +
+    (d.schedule || []).filter((s) => !s.custom).length * 4 +
+    (d.subjects?.length || 0) * 4 +
+    (d.notices?.length || 0) * 3 +
+    (d.menus?.length || 0) * 2
+  );
 }
 
 export async function loadDashboardCache(): Promise<Dashboard | null> {

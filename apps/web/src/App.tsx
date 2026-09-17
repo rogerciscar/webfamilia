@@ -38,29 +38,32 @@ import {
 
 type Tab =
   | "agenda"
-  | "assistencies"
-  | "activitats"
-  | "comunicacions"
-  | "qualificacions"
+  | "mes"
   | "assignatures"
   | "menus"
   | "horari"
   | "calendari";
+
+type MesSection = "assistencies" | "activitats" | "comunicacions" | "qualificacions";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "horari", label: "Horari" },
   { id: "calendari", label: "Cal." },
   { id: "assignatures", label: "Assign." },
   { id: "agenda", label: "Agenda" },
+  { id: "mes", label: "Més" },
+  { id: "menus", label: "Menús" },
+];
+
+const MES_SECTIONS: { id: MesSection; label: string }[] = [
   { id: "assistencies", label: "Assist." },
   { id: "activitats", label: "Activ." },
   { id: "comunicacions", label: "Comun." },
   { id: "qualificacions", label: "Notes" },
-  { id: "menus", label: "Menús" },
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.11";
+const APP_VERSION = "0.3.12";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -116,6 +119,7 @@ export default function App() {
   const [session, setSession] = useState<SessionStatus | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [tab, setTab] = useState<Tab>("horari");
+  const [mesSection, setMesSection] = useState<MesSection>("assistencies");
   const [busy, setBusy] = useState(false);
   const [booting, setBooting] = useState(true);
   const [entering, setEntering] = useState(false);
@@ -717,119 +721,135 @@ export default function App() {
           )}
         </Section>
       )}
-      {tab === "assistencies" && (
-        <Section title="Assistències" count={absences.length}>
-          {absences.length === 0 && <Empty />}
-          {absences.length > 0 && (
-            <div className="table-scroll">
-              <table className="data-table dense">
-                <thead>
-                  <tr>
-                    <th scope="col">Data</th>
-                    <th scope="col">Tipus</th>
-                    <th scope="col">Assignatura</th>
-                    <th scope="col">Justificada</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {absences.map((a) => (
-                    <tr key={a.id}>
-                      <td className="time">{a.date}</td>
-                      <td>
-                        <span className={`pill ${a.kind === "retard" ? "warn" : "danger"}`}>
-                          {a.kind}
-                        </span>
-                      </td>
-                      <td className="cell-main">{a.subject || "—"}</td>
-                      <td className="cell-soft">{a.justified ? "Sí" : "No"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {tab === "mes" && (
+        <div className="mes-wrap">
+          <div className="students mes-segs" role="tablist" aria-label="Més seccions">
+            {MES_SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={mesSection === s.id ? "active" : ""}
+                onClick={() => setMesSection(s.id)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {mesSection === "assistencies" && (
+            <Section title="Assistències" count={absences.length}>
+              {absences.length === 0 && <Empty />}
+              {absences.length > 0 && (
+                <div className="table-scroll">
+                  <table className="data-table dense">
+                    <thead>
+                      <tr>
+                        <th scope="col">Data</th>
+                        <th scope="col">Tipus</th>
+                        <th scope="col">Assignatura</th>
+                        <th scope="col">Justificada</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {absences.map((a) => (
+                        <tr key={a.id}>
+                          <td className="time">{a.date}</td>
+                          <td>
+                            <span className={`pill ${a.kind === "retard" ? "warn" : "danger"}`}>
+                              {a.kind}
+                            </span>
+                          </td>
+                          <td className="cell-main">{a.subject || "—"}</td>
+                          <td className="cell-soft">{a.justified ? "Sí" : "No"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Section>
           )}
-        </Section>
-      )}
-      {tab === "activitats" && (
-        <Section title="Activitats" count={activities.length}>
-          {activities.length === 0 && <Empty />}
-          {activities.length > 0 && (
-            <div className="table-scroll">
-              <table className="data-table dense">
-                <thead>
-                  <tr>
-                    <th scope="col">Data</th>
-                    <th scope="col">Activitat</th>
-                    <th scope="col">Lloc</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activities.map((a) => (
-                    <tr key={a.id}>
-                      <td className="time">{a.date || "—"}</td>
-                      <td className="cell-main">{a.title}</td>
-                      <td className="cell-soft">{a.place || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {mesSection === "activitats" && (
+            <Section title="Activitats" count={activities.length}>
+              {activities.length === 0 && <Empty />}
+              {activities.length > 0 && (
+                <div className="table-scroll">
+                  <table className="data-table dense">
+                    <thead>
+                      <tr>
+                        <th scope="col">Data</th>
+                        <th scope="col">Activitat</th>
+                        <th scope="col">Lloc</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activities.map((a) => (
+                        <tr key={a.id}>
+                          <td className="time">{a.date || "—"}</td>
+                          <td className="cell-main">{a.title}</td>
+                          <td className="cell-soft">{a.place || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Section>
           )}
-        </Section>
-      )}
-      {tab === "comunicacions" && (
-        <Section title="Comunicacions" count={messages.length}>
-          {messages.length === 0 && <Empty />}
-          {messages.length > 0 && (
-            <div className="table-scroll">
-              <table className="data-table dense">
-                <thead>
-                  <tr>
-                    <th scope="col">Data</th>
-                    <th scope="col">De</th>
-                    <th scope="col">Assumpte</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {messages.map((m) => (
-                    <tr key={m.id}>
-                      <td className="time">{m.date || "—"}</td>
-                      <td className="cell-soft">{m.from}</td>
-                      <td className="cell-main">{m.subject}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {mesSection === "comunicacions" && (
+            <Section title="Comunicacions" count={messages.length}>
+              {messages.length === 0 && <Empty />}
+              {messages.length > 0 && (
+                <div className="table-scroll">
+                  <table className="data-table dense">
+                    <thead>
+                      <tr>
+                        <th scope="col">Data</th>
+                        <th scope="col">De</th>
+                        <th scope="col">Assumpte</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {messages.map((m) => (
+                        <tr key={m.id}>
+                          <td className="time">{m.date || "—"}</td>
+                          <td className="cell-soft">{m.from}</td>
+                          <td className="cell-main">{m.subject}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Section>
           )}
-        </Section>
-      )}
-      {tab === "qualificacions" && (
-        <Section title="Qualificacions" count={grades.length}>
-          {grades.length === 0 && <Empty />}
-          {grades.length > 0 && (
-            <div className="table-scroll">
-              <table className="data-table dense">
-                <thead>
-                  <tr>
-                    <th scope="col">Àrea</th>
-                    <th scope="col">Avaluació</th>
-                    <th scope="col">Nota</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grades.map((g) => (
-                    <tr key={g.id}>
-                      <td className="cell-main">{g.subject}</td>
-                      <td className="cell-soft">{g.evaluation || "—"}</td>
-                      <td><span className="pill ok">{g.value}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {mesSection === "qualificacions" && (
+            <Section title="Qualificacions" count={grades.length}>
+              {grades.length === 0 && <Empty />}
+              {grades.length > 0 && (
+                <div className="table-scroll">
+                  <table className="data-table dense">
+                    <thead>
+                      <tr>
+                        <th scope="col">Àrea</th>
+                        <th scope="col">Avaluació</th>
+                        <th scope="col">Nota</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {grades.map((g) => (
+                        <tr key={g.id}>
+                          <td className="cell-main">{g.subject}</td>
+                          <td className="cell-soft">{g.evaluation || "—"}</td>
+                          <td><span className="pill ok">{g.value}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Section>
           )}
-        </Section>
+        </div>
       )}
       {tab === "assignatures" && (
         <Section title="Assignatures" count={subjects.length}>

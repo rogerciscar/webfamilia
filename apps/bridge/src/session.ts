@@ -415,28 +415,94 @@ export function getCachedDashboard() {
 
 function dashboardScore(d: Dashboard | null | undefined): number {
   if (!d) return 0;
+  const scrapedSchedule = (d.schedule || []).filter((s) => !s.custom).length;
   return (
-    (d.students?.length || 0) * 20 +
-    (d.schedule?.length || 0) * 3 +
-    (d.subjects?.length || 0) * 3 +
-    (d.notices?.length || 0) * 2 +
+    (d.students?.length || 0) * 8 +
+    scrapedSchedule * 4 +
+    (d.subjects?.length || 0) * 4 +
+    (d.notices?.length || 0) * 3 +
     (d.absences?.length || 0) +
     (d.grades?.length || 0) +
     (d.messages?.length || 0) +
     (d.activities?.length || 0) +
     (d.attachments?.length || 0) * 2 +
-    (d.menus?.length || 0) * 4
+    (d.menus?.length || 0) * 3
   );
+}
+
+function scrapedScheduleCount(d: Dashboard | null | undefined) {
+  return (d?.schedule || []).filter((s) => !s.custom).length;
+}
+
+/** True when next would erase core school data that prev already had. */
+function isStructurallyWeaker(next: Dashboard, prev: Dashboard): boolean {
+  if ((prev.students?.length || 0) >= 1 && (next.students?.length || 0) === 0) return true;
+  if (scrapedScheduleCount(prev) >= 4 && scrapedScheduleCount(next) === 0) return true;
+  if ((prev.subjects?.length || 0) >= 3 && (next.subjects?.length || 0) === 0) return true;
+  if ((prev.notices?.length || 0) >= 3 && (next.notices?.length || 0) === 0) return true;
+  return false;
+}
+
+function mergeMenusInto(prev: Dashboard, patch: Dashboard): Dashboard {
+  const attachments = dedupeAttachments([
+    ...(patch.attachments || []),
+    ...(prev.attachments || []),
+  ]);
+  const menus = dedupeMenus([...(patch.menus || []), ...(prev.menus || [])]);
+  return {
+    ...prev,
+    attachments,
+    menus,
+    capturedAt: patch.capturedAt || prev.capturedAt,
+    diagnostics: patch.diagnostics
+      ? { ...prev.diagnostics, ...patch.diagnostics, scrapeErrors: patch.diagnostics.scrapeErrors }
+      : prev.diagnostics,
+  };
 }
 
 /** Publish dashboard to memory + cache, but never replace a rich live cache with a hollow scrape. */
 async function commitDashboard(
   dashboard: Dashboard,
-  opts?: { allowWeaker?: boolean; reason?: string },
+  opts?: {
+    allowWeaker?: boolean;
+    reason?: string;
+    /** Only fold menus/attachments into the previous live dashboard. */
+    patch?: "menus";
+  },
 ): Promise<Dashboard> {
   const prev = state.lastDashboard;
+  if (opts?.patch === "menus" && prev?.source === "live") {
+    const merged = mergeMenusInto(prev, dashboard);
+    state.lastDashboard = merged;
+    void saveDashboardCache(merged).catch((err) =>
+      console.error("[webfamilia] dashboard cache save failed:", err),
+    );
+    console.log(
+      `[webfamilia] dashboard menus patched · menus=${merged.menus?.length ?? 0} notices=${merged.notices.length} schedule=${merged.schedule.length}${opts?.reason ? ` · ${opts.reason}` : ""}`,
+    );
+    return mergeCustomIntoDashboard(merged);
+  }
   const nextScore = dashboardScore(dashboard);
   const prevScore = dashboardScore(prev);
+  if (prev?.source === "live" && dashboard.source === "live" && isStructurallyWeaker(dashboard, prev)) {
+    const hasMenuPatch =
+      (dashboard.menus?.length || 0) > 0 || (dashboard.attachments?.length || 0) > 0;
+    if (hasMenuPatch) {
+      const merged = mergeMenusInto(prev, dashboard);
+      state.lastDashboard = merged;
+      void saveDashboardCache(merged).catch((err) =>
+        console.error("[webfamilia] dashboard cache save failed:", err),
+      );
+      console.warn(
+        `[webfamilia] scrape structurally weak (score ${nextScore} vs ${prevScore}) · kept data and merged menus${opts?.reason ? ` · ${opts.reason}` : ""}`,
+      );
+      return mergeCustomIntoDashboard(merged);
+    }
+    console.warn(
+      `[webfamilia] keeping previous dashboard (score ${prevScore}) instead of hollow scrape ${nextScore}${opts?.reason ? ` · ${opts.reason}` : ""}`,
+    );
+    return mergeCustomIntoDashboard(prev);
+  }
   if (
     prev?.source === "live" &&
     dashboard.source === "live" &&
@@ -952,7 +1018,7 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
             note: menus.length ? "Menú OK · baixant altres PDFs…" : "Baixant PDFs dels avisos…",
           },
         },
-        { allowWeaker: true, reason: "menu-first interim" },
+        { patch: "menus", reason: "menu-first interim" },
       );
     }
   }

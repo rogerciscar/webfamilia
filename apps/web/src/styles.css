@@ -17,7 +17,7 @@
   --font-body: "Figtree", sans-serif;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
-  --tabbar-h: calc(96px + var(--safe-bottom));
+  --tabbar-h: calc(56px + var(--safe-bottom));
   color: var(--ink);
   background: var(--brand);
   font-family: var(--font-body);
@@ -490,28 +490,36 @@ label {
   bottom: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.15rem;
-  padding: 0.3rem 0.2rem var(--safe-bottom);
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.1rem;
+  padding: 0.25rem 0.15rem var(--safe-bottom);
   background: color-mix(in srgb, white 88%, var(--mist));
   border-top: 1px solid var(--line);
   backdrop-filter: blur(10px);
-  max-height: calc(var(--tabbar-h) + 2.2rem);
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
 }
 .tabbar button {
   background: transparent;
   color: var(--ink-soft);
   border-radius: 12px;
-  padding: 0.4rem 0.1rem;
-  font-size: 0.62rem;
+  padding: 0.35rem 0.05rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1.15;
   min-height: 44px;
   display: grid;
   align-content: center;
   justify-items: center;
   gap: 0.1rem;
+}
+.mes-wrap { display: grid; gap: 0.65rem; }
+.mes-segs {
+  margin: 0 !important;
+}
+.mes-segs button {
+  font-size: 0.8rem;
+  padding: 0.45rem 0.7rem;
 }
 .tabbar button span.icon {
   font-size: 1.05rem;
