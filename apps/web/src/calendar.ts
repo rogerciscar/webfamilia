@@ -66,6 +66,10 @@ export function weekdayNameFromIso(dateIso: string): string {
   return WEEKDAY_CA[idx]!;
 }
 
+export function weekdayShortLabels() {
+  return [...WEEKDAY_SHORT];
+}
+
 export function weekdaysCa() {
   return [...WEEKDAY_CA];
 }

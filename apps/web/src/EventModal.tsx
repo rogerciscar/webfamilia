@@ -5,6 +5,7 @@ import {
   orderWeekdays,
   resolveEventKind,
   slotWeekdays,
+  weekdayShortLabels,
   weekdaysCa,
   weekdayNameFromIso,
 } from "./calendar";
@@ -251,18 +252,21 @@ export function EventModal({ open, busy, draft: initial, onClose, onSave, onDele
               <fieldset className="day-chips-fieldset">
                 <legend>Dies de la setmana</legend>
                 <div className="day-chips" role="group" aria-label="Dies de la setmana">
-                  {weekdaysCa().map((w) => {
+                  {weekdaysCa().map((w, i) => {
                     const active = draft.days.includes(w);
+                    const short = weekdayShortLabels()[i] || w.slice(0, 2);
                     return (
                       <button
                         key={w}
                         type="button"
                         className={active ? "day-chip active" : "day-chip"}
                         aria-pressed={active}
+                        aria-label={w}
+                        title={w}
                         disabled={busy}
                         onClick={() => toggleDay(w)}
                       >
-                        {w.slice(0, 2)}
+                        {short}
                       </button>
                     );
                   })}
