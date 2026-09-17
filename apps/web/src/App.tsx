@@ -22,7 +22,6 @@ import { PhotoCropper } from "./PhotoCropper";
 import { PdfViewer } from "./PdfViewer";
 import { InstallAppButton } from "./InstallAppButton";
 import {
-  isMenjadorAgendaNotice,
   menuSlotsForDay,
   normalizeDay,
   saladLabel,
@@ -50,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const WEEK_DAYS = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"] as const;
-const APP_VERSION = "0.3.2";
+const APP_VERSION = "0.3.3";
 
 function todayWeekday(): (typeof WEEK_DAYS)[number] {
   const idx = new Date().getDay();
@@ -447,9 +446,9 @@ export default function App() {
     ...forStudent(dashboard.schedule ?? [], sid),
     ...menuLunchDinner,
   ];
-  const notices = forStudent(dashboard.notices, sid)
-    .filter((n) => !isMenjadorAgendaNotice(n.title))
-    .sort((a, b) => (a.dateIso || a.date || "").localeCompare(b.dateIso || b.date || ""));
+  const notices = forStudent(dashboard.notices, sid).sort((a, b) =>
+    (a.dateIso || a.date || "").localeCompare(b.dateIso || b.date || ""),
+  );
   const absences = forStudent(dashboard.absences, sid);
   const grades = forStudent(dashboard.grades, sid);
   const messages = forStudent(dashboard.messages, sid);

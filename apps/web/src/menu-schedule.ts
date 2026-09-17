@@ -105,10 +105,3 @@ export function menuSlotsForDay(
     return true;
   });
 }
-
-/** True for WF "Menú menjador" avisos (belong in Menús, not Agenda). */
-export function isMenjadorAgendaNotice(title: string) {
-  return /men[uú]\s*(del\s*)?(menjador|comedor)|menjador\s*setembr|proposta de sopar|^sopar\s*\d|^dinar\s*\d/i.test(
-    title,
-  );
-}
