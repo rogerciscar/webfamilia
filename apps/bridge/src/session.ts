@@ -753,12 +753,11 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
     { allowWeaker: false, reason: "html interim" },
   );
 
-  // Open aviso details and pull PDFs (Agenda → PDF → Menús) — per student
-  // SharePoint needs Playwright (browser cookies); cheerio/fetch alone fails.
+  // PDFs: menjador FIRST (menus + Horari dinar/sopar), then other avisos with docs.
   const pdfCache = new Map<string, { att: Attachment; buffer: Buffer }>();
   let pw: PlaywrightPdfSession | null = null;
   let pwTries = 0;
-  const PW_LIMIT = 12;
+  const PW_LIMIT = 14;
   const ensurePw = async () => {
     if (pw) return pw;
     const password = await resolveWfPassword(client);
@@ -776,8 +775,176 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       return null;
     }
   };
+
+  const tryStorePdfForNotice = async (
+    notice: Notice,
+    buffer: Buffer,
+    url: string,
+    filenameHint: string | undefined,
+    docText: string,
+  ) => {
+    const filename = (
+      docText.match(/[\w.\- ]+\.pdf/i)?.[0] ||
+      filenameHint ||
+      `${notice.title}.pdf`
+    )
+      .replace(/[^\w.\- ]+/g, "_")
+      .slice(0, 80);
+    const safeName = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+    const hash = shaOf(buffer);
+    const cached = pdfCache.get(hash);
+    let att: Attachment;
+    if (cached) {
+      att = { ...cached.att, studentId: notice.studentId, noticeId: notice.id };
+    } else {
+      att = await storePdf({
+        buffer,
+        filename: safeName,
+        sourceUrl: url,
+        title: notice.title,
+        noticeId: notice.id,
+        studentId: notice.studentId,
+      });
+      pdfCache.set(att.sha256, { att, buffer });
+      if (!seenPdf.has(att.sha256)) {
+        seenPdf.add(att.sha256);
+        attachments.push(att);
+      }
+    }
+    notice.attachments = notice.attachments || [];
+    if (!notice.attachments.some((a) => a.sha256 === att.sha256)) {
+      notice.attachments.push(att);
+    }
+    const looksMenu =
+      att.kind === "menu_menjador" ||
+      att.kind === "menu_especial" ||
+      /men[uú]|menjador|comedor|dieta/i.test(`${att.filename} ${notice.title} ${docText}`);
+    if (looksMenu) {
+      const already = menus.some(
+        (m) => m.attachmentId === att.id && m.studentId === notice.studentId,
+      );
+      if (!already) {
+        try {
+          const buf = cached?.buffer ?? buffer;
+          const menu = await extractMenuFromPdf(buf, {
+            sourceFile: att.filename,
+            centerName: students.find((s) => s.id === notice.studentId)?.center,
+          });
+          if (menu) {
+            menu.attachmentId = att.id;
+            menu.studentId = notice.studentId;
+            menu.studentName = notice.studentName;
+            menus.push(menu);
+          } else scrapeErrors.push(`menu buit: ${att.filename}`);
+        } catch (err) {
+          scrapeErrors.push(
+            `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
+          );
+        }
+      }
+    }
+    return att;
+  };
+
   try {
-  for (const notice of notices.slice(0, 40)) {
+  // 1) Menú menjador first so Horari/Menús recover quickly
+  if (!menus.length) {
+    try {
+      const menuNotice =
+        notices.find((n) => /men[uú]\s*(del\s*)?(menjador|comedor)|menjador/i.test(n.title)) ||
+        null;
+      const session = await ensurePw();
+      if (session) {
+        pwTries += 1;
+        const captured = await session.downloadByNoticeTitle(/Men[uú]\s+menjador|Menjador/i);
+        if (captured) {
+          const target =
+            menuNotice ||
+            ({
+              id: "menu-menjador",
+              title: "Menú menjador",
+              body: "Menú menjador",
+              studentId: students[0]?.id,
+              studentName: students[0]?.name,
+              attachments: [],
+            } as Notice);
+          await tryStorePdfForNotice(
+            target,
+            captured.buffer,
+            captured.url,
+            captured.filenameHint || "menu-menjador.pdf",
+            "Menú menjador",
+          );
+          if (menuNotice && !notices.includes(menuNotice)) {
+            // already in list
+          }
+        }
+      }
+    } catch (err) {
+      scrapeErrors.push(
+        `playwright menú first: ${err instanceof Error ? err.message : "error"}`,
+      );
+    }
+    if (menus.length || attachments.length) {
+      await commitDashboard(
+        {
+          source: "live",
+          capturedAt: new Date().toISOString(),
+          students,
+          student: students[0] ?? null,
+          notices,
+          absences,
+          grades,
+          messages,
+          activities,
+          behaviors: behaviorsEarly,
+          subjects,
+          schedule,
+          attachments: [...attachments],
+          menus: [...menus],
+          diagnostics: {
+            pages: Object.entries(pages).map(([key, html]) => ({
+              key,
+              bytes: html.length,
+              title: cheerio.load(html)("title").first().text().replace(/\s+/g, " ").trim(),
+              links: extractNavLinks(html).length,
+            })),
+            navLinks: nav.slice(0, 40),
+            scrapeErrors: scrapeErrors.slice(0, 30),
+            scrapedStudents: students.map((s) => ({
+              id: s.id,
+              name: s.name,
+              notices: notices.filter((n) => n.studentId === s.id).length,
+              schedule: schedule.filter((h) => h.studentId === s.id).length,
+              subjects: subjects.filter((x) => x.studentId === s.id).length,
+              absences: absences.filter((a) => a.studentId === s.id).length,
+              menus: menus.filter((m) => m.studentId === s.id).length,
+              tutorName: s.tutorName,
+              group: s.group || s.course,
+            })),
+            note: menus.length ? "Menú OK · baixant altres PDFs…" : "Baixant PDFs dels avisos…",
+          },
+        },
+        { allowWeaker: true, reason: "menu-first interim" },
+      );
+    }
+  }
+
+  // 2) Other avisos — prioritize dossier / documents
+  const noticePriority = (title: string) => {
+    if (/men[uú]|menjador/i.test(title)) return 0;
+    if (/dossier|informaci[oó]\s+del\s+centre|infograf/i.test(title)) return 1;
+    if (/document|adjunt|circular|pdf|guia|protocol|calendari/i.test(title)) return 2;
+    return 5;
+  };
+  const orderedNotices = [...notices].sort(
+    (a, b) => noticePriority(a.title) - noticePriority(b.title),
+  );
+
+  for (const notice of orderedNotices.slice(0, 40)) {
+    if (/men[uú]\s*(del\s*)?(menjador|comedor)/i.test(notice.title) && notice.attachments?.length) {
+      continue; // already handled
+    }
     const mid = notice.studentId ? matriculaByStudent.get(notice.studentId) : undefined;
     const hrefCandidates = [
       notice.detailHref,
@@ -807,79 +974,14 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       scrapeErrors.push(`sense PDF: ${notice.title.slice(0, 40)} (${notice.studentId || "?"})`);
     }
     notice.attachments = notice.attachments || [];
-    const tryStorePdf = async (
-      buffer: Buffer,
-      url: string,
-      filenameHint: string | undefined,
-      docText: string,
-    ) => {
-      const filename = (
-        docText.match(/[\w.\- ]+\.pdf/i)?.[0] ||
-        filenameHint ||
-        `${notice.title}.pdf`
-      )
-        .replace(/[^\w.\- ]+/g, "_")
-        .slice(0, 80);
-      const safeName = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
-      const hash = shaOf(buffer);
-      const cached = pdfCache.get(hash);
-      let att: Attachment;
-      if (cached) {
-        att = { ...cached.att, studentId: notice.studentId, noticeId: notice.id };
-      } else {
-        att = await storePdf({
-          buffer,
-          filename: safeName,
-          sourceUrl: url,
-          title: notice.title,
-          noticeId: notice.id,
-          studentId: notice.studentId,
-        });
-        pdfCache.set(att.sha256, { att, buffer });
-        if (!seenPdf.has(att.sha256)) {
-          seenPdf.add(att.sha256);
-          attachments.push(att);
-        }
-      }
-      if (!notice.attachments!.some((a) => a.sha256 === att.sha256)) {
-        notice.attachments!.push(att);
-      }
-      const looksMenu =
-        att.kind === "menu_menjador" ||
-        att.kind === "menu_especial" ||
-        /men[uú]|menjador|comedor|dieta/i.test(`${att.filename} ${notice.title} ${docText}`);
-      if (looksMenu) {
-        const already = menus.some(
-          (m) => m.attachmentId === att.id && m.studentId === notice.studentId,
-        );
-        if (!already) {
-          try {
-            const buf = cached?.buffer ?? buffer;
-            const menu = await extractMenuFromPdf(buf, {
-              sourceFile: att.filename,
-              centerName: students.find((s) => s.id === notice.studentId)?.center,
-            });
-            if (menu) {
-              menu.attachmentId = att.id;
-              menu.studentId = notice.studentId;
-              menu.studentName = notice.studentName;
-              menus.push(menu);
-            } else scrapeErrors.push(`menu buit: ${att.filename}`);
-          } catch (err) {
-            scrapeErrors.push(
-              `menu ${att.filename}: ${err instanceof Error ? err.message : "error"}`,
-            );
-          }
-        }
-      }
-    };
 
-    for (const doc of docLinks.slice(0, 10)) {
+    for (const doc of docLinks.slice(0, 8)) {
       try {
         let resolved = await downloadPdfSmart(client, doc.href, detailUrl);
-        if (!resolved) {
+        if (!resolved && pwTries < PW_LIMIT) {
           const session = await ensurePw();
           if (session) {
+            pwTries += 1;
             resolved = await session.downloadFromDetail({
               detailUrl:
                 detailUrl.startsWith("http")
@@ -892,18 +994,23 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
           }
         }
         if (!resolved) continue;
-        await tryStorePdf(resolved.buffer, resolved.url, resolved.filenameHint, doc.text);
+        await tryStorePdfForNotice(
+          notice,
+          resolved.buffer,
+          resolved.url,
+          resolved.filenameHint,
+          doc.text,
+        );
       } catch (err) {
         scrapeErrors.push(`pdf ${doc.href}: ${err instanceof Error ? err.message : "error"}`);
       }
     }
 
-    // Playwright only when needed — never for every aviso (that hung the whole scrape).
     const wantsPw =
       !notice.attachments.length &&
       pwTries < PW_LIMIT &&
       (docLinks.length > 0 ||
-        /men[uú]|menjador|pdf|document|adjunt|circular|infograf|guia|normativa|calendari|horari|protocol/i.test(
+        /men[uú]|menjador|pdf|document|adjunt|circular|infograf|guia|normativa|calendari|horari|protocol|dossier|informaci/i.test(
           notice.title,
         ));
     if (wantsPw) {
@@ -920,7 +1027,8 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
             noticeTitle: notice.title,
           });
           if (captured) {
-            await tryStorePdf(
+            await tryStorePdfForNotice(
+              notice,
               captured.buffer,
               captured.url,
               captured.filenameHint,
@@ -944,43 +1052,6 @@ async function buildDashboard(client: WebFamiliaClient): Promise<Dashboard> {
       if (att.noticeId !== notice.id) continue;
       if (notice.attachments.some((a) => a.sha256 === att.sha256 || a.id === att.id)) continue;
       notice.attachments.push(att);
-    }
-  }
-
-  // Dedicated Menú menjador pass if still empty
-  if (!menus.length) {
-    try {
-      const session = await ensurePw();
-      if (session) {
-        const captured = await session.downloadByNoticeTitle(/Men[uú]\s+menjador/i);
-        if (captured) {
-          const att = await storePdf({
-            buffer: captured.buffer,
-            filename: captured.filenameHint || "menu-menjador.pdf",
-            sourceUrl: captured.url,
-            title: "Menú menjador",
-            studentId: students[0]?.id,
-          });
-          if (!seenPdf.has(att.sha256)) {
-            seenPdf.add(att.sha256);
-            attachments.push(att);
-          }
-          const menu = await extractMenuFromPdf(captured.buffer, {
-            sourceFile: att.filename,
-            centerName: students[0]?.center,
-          });
-          if (menu) {
-            menu.attachmentId = att.id;
-            menu.studentId = students[0]?.id;
-            menu.studentName = students[0]?.name;
-            menus.push(menu);
-          }
-        }
-      }
-    } catch (err) {
-      scrapeErrors.push(
-        `playwright menú: ${err instanceof Error ? err.message : "error"}`,
-      );
     }
   }
   } finally {

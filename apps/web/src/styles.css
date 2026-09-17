@@ -784,11 +784,22 @@ button.linkish:hover { transform: none; opacity: 0.85; }
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, white 80%, var(--mist));
 }
+.pdf-toolbar-actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  flex-shrink: 0;
+}
 .pdf-toolbar strong {
   font-size: 0.9rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pdf-loading,
+.pdf-error {
+  margin: 1.5rem;
+  text-align: center;
 }
 .pdf-frame {
   width: 100%;

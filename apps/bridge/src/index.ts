@@ -22,7 +22,7 @@ import {
   useMock,
 } from "./session";
 import { getStorageInfo } from "./vault";
-import { pdfDiskPath } from "./attachments";
+import { pdfDiskPath, pdfsBackend, readPdfBytes } from "./attachments";
 import type { Attachment } from "@pont/shared";
 import {
   clearBrowserSession,
@@ -92,6 +92,7 @@ app.get("/api/health", async (c) => {
     scrape: session.scrape,
     photos: photosBackend(),
     photosStored: await photosCount(),
+    pdfs: pdfsBackend(),
   });
 });
 
@@ -250,10 +251,12 @@ app.get("/api/attachments/:id", async (c) => {
   const dash = getCachedDashboard() ?? (await getDashboard().catch(() => null));
   const att = dash?.attachments?.find((a: Attachment) => a.id === id);
   if (!att) return c.text("Not found", 404);
-  const disk = pdfDiskPath(att);
-  if (!existsSync(disk)) return c.text("Fitxer no trobat al disc", 404);
-  const buf = await readFile(disk);
-  return new Response(buf, {
+  const buf = await readPdfBytes(att);
+  if (!buf) {
+    console.error(`[pdf] missing bytes id=${att.id} disk=${pdfDiskPath(att)}`);
+    return c.text("Fitxer no trobat (encara s'està descarregant o s'ha perdut). Torna a scrapear.", 404);
+  }
+  return new Response(new Uint8Array(buf), {
     headers: {
       "content-type": "application/pdf",
       "content-disposition": `inline; filename="${att.filename.replace(/"/g, "")}"`,
@@ -353,7 +356,7 @@ if (webRootAbs && webRootRel) {
     c.header("pragma", "no-cache");
     c.header("expires", "0");
     c.header("surrogate-control", "no-store");
-    c.header("x-webfamilia-build", "0.3.1");
+    c.header("x-webfamilia-build", "0.3.2");
     return c.html(html);
   };
   // Serve HTML ourselves so browsers never keep a stale shell (old Act./0.2.3).
